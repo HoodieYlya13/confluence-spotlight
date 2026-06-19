@@ -2,6 +2,7 @@
   "name": "confluence-spotlight",
   "private": true,
   "version": "0.1.0",
+  "description": "Tauri-based desktop Spotlight command bar for the RBAC-enforced Confluence RAG MCP server.",
   "type": "module",
   "scripts": {
     "dev": "vite",
