@@ -28,9 +28,20 @@ The web console's job is the side-by-side RBAC diff. The spotlight's job is a fa
 
 The badge label is configuration, not server truth: the MCP tools resolve role server-side from the token and there is no `whoami` tool, so the app cannot derive the role name from the token alone. Adding a `whoami` tool server-side is the clean future fix and is deliberately deferred.
 
-### Frameless, always-on-top, dismiss-on-blur
+### Frameless NSPanel that floats over fullscreen apps, dismiss-on-blur
 
-`tauri.conf.json` starts the window hidden (`visible: false`) and frameless (`decorations: false`, `transparent: true`, `alwaysOnTop: true`, `skipTaskbar: true`, `resizable: false`, `center: true`). The global shortcut (registered in Rust via `tauri-plugin-global-shortcut`, `on_shortcut`) toggles visibility, centers, focuses, and emits `spotlight-open` so the webview focuses and selects the input. Losing focus (`WindowEvent::Focused(false)`) or pressing Esc (a `hide_window` command) hides the window — the Spotlight/Raycast dismissal contract. Transparency requires `macOSPrivateApi: true` plus the `macos-private-api` cargo feature on the `tauri` dependency.
+`tauri.conf.json` starts the window hidden (`visible: false`) and frameless (`decorations: false`, `transparent: true`, `skipTaskbar: true`, `resizable: false`, `center: true`). The global shortcut (registered in Rust via `tauri-plugin-global-shortcut`, `on_shortcut`) toggles the panel, centers it, and emits `spotlight-open` so the webview focuses and selects the input. Pressing Esc (a `hide_window` command) hides it. Transparency requires `macOSPrivateApi: true` plus the `macos-private-api` cargo feature on the `tauri` dependency.
+
+A plain always-on-top window only floats over *ordinary* windows: macOS gives each fullscreen app its own Space, and a regular window cannot appear in it — and even if forced to, activating a regular app to give it keyboard focus yanks the user out of the fullscreen Space. The standard fix, and what every Raycast/Spotlight-style app uses, is an `NSPanel`. So in `setup` the window is converted with `tauri-nspanel`'s `to_panel` (the `tauri_panel!` macro declares the panel class as `can_become_key_window` + `is_floating_panel`), then configured for the overlay contract:
+
+- `set_collection_behavior(full_screen_auxiliary | can_join_all_spaces)` — the panel is allowed *into* the active fullscreen Space and onto every Space, instead of being confined to its own.
+- `set_style_mask(nonactivating_panel)` — the panel can become key and take keystrokes **without activating the app**, so summoning it never switches Spaces or steals focus from the app underneath.
+- `set_level(Floating)` — sits above normal window content.
+- `set_activation_policy(Accessory)` — no Dock icon and no Cmd-Tab entry, matching a summon-on-hotkey utility. (Trade-off: a packaged build has no Dock icon to quit from; under `tauri dev` the terminal owns the process. Removing this one line restores the Dock icon.)
+
+Dismiss-on-blur is handled by the panel's own `window_did_resign_key` delegate (registered via the macro's `panel_event!` and `set_event_handler`) rather than Tauri's `WindowEvent::Focused`, which a non-activating panel does not emit reliably.
+
+Because the window is `transparent`, the OS clips everything to the window bounds — including the card's CSS drop shadow. The card therefore does not fill the window: the `body` reserves padding (`36px 48px 72px`, more at the bottom to match the shadow's downward offset) and the card is height-bounded to `calc(100vh - 108px)`, so the `0 18px 48px` shadow fades out inside the transparent window instead of being cut off at the edges.
 
 ### Links open in the system browser, not the webview
 

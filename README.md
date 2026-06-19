@@ -33,6 +33,8 @@ bun run tauri dev
 
 The window starts hidden. Press the hotkey (default **Cmd+Shift+Space**) to summon the bar, type a question, and press Enter. Click a source link to open the Confluence page in your system browser. Press **Esc** or click away to dismiss.
 
+On macOS the bar is an `NSPanel`, so it floats over whatever you are doing — including apps in fullscreen — and across all Spaces, without pulling you out of the app underneath. It runs as an accessory (no Dock icon and no Cmd-Tab entry, like Raycast); under `bun run tauri dev` you quit it from the terminal. See [`TAD.md`](./TAD.md) for the rationale.
+
 ## Verify the data path (no GUI)
 
 ```bash
