@@ -1,13 +1,18 @@
 use anyhow::{anyhow, Result};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use rmcp::model::{CallToolRequestParams, CallToolResult};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::ServiceExt;
-use std::collections::HashMap;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 const DEFAULT_SERVER_URL: &str = "https://hoodieylya13-mcp-confluence-documentation-rag.hf.space";
+const DEFAULT_AUTH_URL: &str = "https://confluence-bot.hy13dev.com";
 const DEFAULT_HOTKEY: &str = "CmdOrCtrl+Shift+Space";
 const ASK_TOOL: &str = "ask_accelerator_operations";
+pub const REDIRECT_URI: &str = "confluence-spotlight://auth";
 
 pub const ROLES: &[(&str, &str)] = &[
     ("JUNIOR_OP", "Junior Operator"),
@@ -24,43 +29,19 @@ pub fn role_label(key: &str) -> Option<&'static str> {
 #[derive(Clone)]
 pub struct McpConfig {
     pub server_url: String,
+    pub auth_url: String,
     pub default_hotkey: String,
-    tokens: HashMap<String, String>,
 }
 
 impl McpConfig {
     pub fn from_env() -> Self {
         let _ = dotenvy::dotenv();
 
-        let mut tokens = HashMap::new();
-        if let Some(token) = non_empty_env("MCP_TOKEN_JUNIOR_OP") {
-            tokens.insert("JUNIOR_OP".to_string(), token);
-        }
-        if let Some(token) = non_empty_env("MCP_TOKEN_ATS_CORE_LEAD") {
-            tokens.insert("ATS_CORE_LEAD".to_string(), token);
-        }
-        if !tokens.contains_key("JUNIOR_OP") {
-            if let Some(token) = non_empty_env("SPOTLIGHT_TOKEN") {
-                tokens.insert("JUNIOR_OP".to_string(), token);
-            }
-        }
-
         Self {
             server_url: env_or("MCP_SERVER_URL", DEFAULT_SERVER_URL),
+            auth_url: env_or("SPOTLIGHT_AUTH_URL", DEFAULT_AUTH_URL),
             default_hotkey: env_or("SPOTLIGHT_HOTKEY", DEFAULT_HOTKEY),
-            tokens,
         }
-    }
-
-    pub fn token_for(&self, role: &str) -> Option<&str> {
-        self.tokens
-            .get(role)
-            .map(|token| token.as_str())
-            .filter(|token| !token.trim().is_empty())
-    }
-
-    pub fn has_token(&self, role: &str) -> bool {
-        self.token_for(role).is_some()
     }
 }
 
@@ -77,6 +58,56 @@ fn env_or(key: &str, fallback: &str) -> String {
 
 fn endpoint(server_url: &str) -> String {
     format!("{}/mcp", server_url.trim_end_matches('/'))
+}
+
+pub fn random_token() -> String {
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes).expect("system RNG unavailable");
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+pub fn pkce_challenge(verifier: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(verifier.as_bytes());
+    URL_SAFE_NO_PAD.encode(hasher.finalize())
+}
+
+pub fn authorize_url(auth_url: &str, state: &str, challenge: &str) -> String {
+    format!(
+        "{}/spotlight-login?state={}&code_challenge={}&redirect_uri={}",
+        auth_url.trim_end_matches('/'),
+        urlencode(state),
+        urlencode(challenge),
+        urlencode(REDIRECT_URI),
+    )
+}
+
+fn urlencode(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+#[derive(Deserialize)]
+pub struct TokenResponse {
+    pub access_token: String,
+    pub role: String,
+    pub role_label: String,
+}
+
+pub async fn exchange_code(auth_url: &str, code: &str, verifier: &str) -> Result<TokenResponse> {
+    let url = format!("{}/api/spotlight/token", auth_url.trim_end_matches('/'));
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&serde_json::json!({ "code": code, "code_verifier": verifier }))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow!("Sign-in failed ({status}): {body}"));
+    }
+
+    Ok(response.json::<TokenResponse>().await?)
 }
 
 pub async fn ask(server_url: &str, token: &str, question: &str) -> Result<String> {

@@ -11,7 +11,9 @@ use tauri::{ActivationPolicy, AppHandle, Emitter, Manager};
 use tauri_nspanel::{
     tauri_panel, CollectionBehavior, ManagerExt, PanelLevel, StyleMask, WebviewWindowExt,
 };
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_opener::OpenerExt;
 
 tauri_panel! {
     panel!(SpotlightPanel {
@@ -27,23 +29,28 @@ tauri_panel! {
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
-struct Session {
-    role: Option<String>,
+struct Settings {
     hotkey: Option<String>,
+}
+
+#[derive(Clone)]
+struct Auth {
+    role: String,
+    token: String,
+}
+
+struct PendingAuth {
+    state: String,
+    verifier: String,
 }
 
 struct AppState {
     config: McpConfig,
-    session: Mutex<Session>,
-    session_path: PathBuf,
+    settings: Mutex<Settings>,
+    settings_path: PathBuf,
     hotkey_registered: Mutex<bool>,
-}
-
-#[derive(Serialize)]
-struct RoleOption {
-    key: String,
-    label: String,
-    available: bool,
+    auth: Mutex<Option<Auth>>,
+    pending_auth: Mutex<Option<PendingAuth>>,
 }
 
 #[derive(Serialize)]
@@ -51,7 +58,6 @@ struct SessionView {
     role: Option<String>,
     role_label: Option<String>,
     hotkey: String,
-    roles: Vec<RoleOption>,
 }
 
 #[derive(Serialize)]
@@ -60,47 +66,50 @@ struct AnswerPayload {
     role: String,
 }
 
-fn load_session(path: &PathBuf) -> Session {
+#[derive(Clone, Serialize)]
+struct AuthEvent {
+    ok: bool,
+    role_label: Option<String>,
+    error: Option<String>,
+}
+
+fn load_settings(path: &PathBuf) -> Settings {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default()
 }
 
-fn save_session(path: &PathBuf, session: &Session) {
+fn save_settings(path: &PathBuf, settings: &Settings) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Ok(raw) = serde_json::to_string_pretty(session) {
+    if let Ok(raw) = serde_json::to_string_pretty(settings) {
         let _ = std::fs::write(path, raw);
     }
 }
 
-fn session_view(state: &AppState) -> SessionView {
-    let session = state.session.lock().unwrap();
-    let hotkey = session
+fn current_hotkey(state: &AppState) -> String {
+    let settings = state.settings.lock().unwrap();
+    settings
         .hotkey
         .clone()
-        .unwrap_or_else(|| state.config.default_hotkey.clone());
-    let role = session.role.clone();
+        .unwrap_or_else(|| state.config.default_hotkey.clone())
+}
+
+fn session_view(state: &AppState) -> SessionView {
+    let hotkey = current_hotkey(state);
+    let auth = state.auth.lock().unwrap();
+    let role = auth.as_ref().map(|auth| auth.role.clone());
     let role_label = role
         .as_deref()
         .and_then(mcp::role_label)
         .map(|label| label.to_string());
-    let roles = mcp::ROLES
-        .iter()
-        .map(|(key, label)| RoleOption {
-            key: key.to_string(),
-            label: label.to_string(),
-            available: state.config.has_token(key),
-        })
-        .collect();
 
     SessionView {
         role,
         role_label,
         hotkey,
-        roles,
     }
 }
 
@@ -110,34 +119,62 @@ fn get_session(state: tauri::State<'_, AppState>) -> SessionView {
 }
 
 #[tauri::command]
-fn login(state: tauri::State<'_, AppState>, role: String) -> Result<SessionView, String> {
-    if mcp::role_label(&role).is_none() {
-        return Err(format!("Unknown role '{role}'."));
-    }
-    if !state.config.has_token(&role) {
-        return Err(format!(
-            "No token is configured for {role}. Set its MCP_TOKEN_… value in .env."
-        ));
-    }
+fn begin_login(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let verifier = mcp::random_token();
+    let challenge = mcp::pkce_challenge(&verifier);
+    let csrf = mcp::random_token();
+    let url = mcp::authorize_url(&state.config.auth_url, &csrf, &challenge);
 
     {
-        let mut session = state.session.lock().unwrap();
-        session.role = Some(role);
-        save_session(&state.session_path, &session);
+        let mut pending = state.pending_auth.lock().unwrap();
+        *pending = Some(PendingAuth {
+            state: csrf,
+            verifier,
+        });
     }
 
-    Ok(session_view(state.inner()))
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 fn logout(state: tauri::State<'_, AppState>) -> SessionView {
     {
-        let mut session = state.session.lock().unwrap();
-        session.role = None;
-        save_session(&state.session_path, &session);
+        *state.auth.lock().unwrap() = None;
     }
-
     session_view(state.inner())
+}
+
+#[cfg(debug_assertions)]
+fn dev_token(role: &str) -> Option<String> {
+    std::env::var(format!("MCP_TOKEN_{role}"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
+
+#[tauri::command]
+fn dev_login(role: String, state: tauri::State<'_, AppState>) -> Result<SessionView, String> {
+    #[cfg(debug_assertions)]
+    {
+        if mcp::role_label(&role).is_none() {
+            return Err(format!("Unknown role '{role}'."));
+        }
+        match dev_token(&role) {
+            Some(token) => {
+                *state.auth.lock().unwrap() = Some(Auth { role, token });
+                Ok(session_view(state.inner()))
+            }
+            None => Err(format!(
+                "Set MCP_TOKEN_{role} in confluence-spotlight/.env to use dev sign-in."
+            )),
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (role, state);
+        Err("Dev sign-in is disabled in release builds.".to_string())
+    }
 }
 
 #[tauri::command]
@@ -151,13 +188,7 @@ fn set_hotkey(
         return Err("Empty shortcut.".to_string());
     }
 
-    let current = {
-        let session = state.session.lock().unwrap();
-        session
-            .hotkey
-            .clone()
-            .unwrap_or_else(|| state.config.default_hotkey.clone())
-    };
+    let current = current_hotkey(state.inner());
 
     let _ = app.global_shortcut().unregister(current.as_str());
     if let Err(error) = register_hotkey(&app, &trimmed) {
@@ -166,9 +197,9 @@ fn set_hotkey(
     }
 
     {
-        let mut session = state.session.lock().unwrap();
-        session.hotkey = Some(trimmed.clone());
-        save_session(&state.session_path, &session);
+        let mut settings = state.settings.lock().unwrap();
+        settings.hotkey = Some(trimmed.clone());
+        save_settings(&state.settings_path, &settings);
     }
 
     {
@@ -190,15 +221,14 @@ async fn ask_question(
     }
 
     let (server_url, token, role_label) = {
-        let session = state.session.lock().unwrap();
-        let Some(role) = session.role.clone() else {
+        let auth = state.auth.lock().unwrap();
+        let Some(auth) = auth.as_ref() else {
             return Err("Not connected. Open the spotlight and sign in first.".to_string());
         };
-        let Some(token) = state.config.token_for(&role) else {
-            return Err(format!("No token is configured for {role}."));
-        };
-        let label = mcp::role_label(&role).unwrap_or(&role).to_string();
-        (state.config.server_url.clone(), token.to_string(), label)
+        let label = mcp::role_label(&auth.role)
+            .unwrap_or(&auth.role)
+            .to_string();
+        (state.config.server_url.clone(), auth.token.clone(), label)
     };
 
     let answer = mcp::ask(&server_url, &token, &trimmed)
@@ -215,13 +245,7 @@ fn register_current_hotkey_internal(app: &AppHandle) -> Result<(), String> {
     if let Some(state) = app.try_state::<AppState>() {
         let mut registered = state.hotkey_registered.lock().unwrap();
         if !*registered {
-            let current = {
-                let session = state.session.lock().unwrap();
-                session
-                    .hotkey
-                    .clone()
-                    .unwrap_or_else(|| state.config.default_hotkey.clone())
-            };
+            let current = current_hotkey(state.inner());
             let _ = app.global_shortcut().unregister(current.as_str());
             register_hotkey(app, &current)?;
             *registered = true;
@@ -234,13 +258,7 @@ fn unregister_current_hotkey_internal(app: &AppHandle) -> Result<(), String> {
     if let Some(state) = app.try_state::<AppState>() {
         let mut registered = state.hotkey_registered.lock().unwrap();
         if *registered {
-            let current = {
-                let session = state.session.lock().unwrap();
-                session
-                    .hotkey
-                    .clone()
-                    .unwrap_or_else(|| state.config.default_hotkey.clone())
-            };
+            let current = current_hotkey(state.inner());
             let _ = app.global_shortcut().unregister(current.as_str());
             *registered = false;
         }
@@ -265,15 +283,10 @@ fn hide_window(app: AppHandle) {
     }
 }
 
-fn toggle_window(app: &AppHandle) {
+fn show_window(app: &AppHandle) {
     let Ok(panel) = app.get_webview_panel("main") else {
         return;
     };
-
-    if panel.is_visible() {
-        panel.hide();
-        return;
-    }
 
     if let Some(window) = app.get_webview_window("main") {
         if let Ok(Some(monitor)) = window.current_monitor() {
@@ -285,8 +298,91 @@ fn toggle_window(app: &AppHandle) {
             let _ = window.center();
         }
     }
+
     panel.show_and_make_key();
     let _ = app.emit("spotlight-open", ());
+}
+
+fn toggle_window(app: &AppHandle) {
+    let Ok(panel) = app.get_webview_panel("main") else {
+        return;
+    };
+
+    if panel.is_visible() {
+        panel.hide();
+        return;
+    }
+
+    show_window(app);
+}
+
+fn handle_auth_url(app: &AppHandle, url: &url::Url) {
+    let mut code = None;
+    let mut returned_state = None;
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "code" => code = Some(value.into_owned()),
+            "state" => returned_state = Some(value.into_owned()),
+            _ => {}
+        }
+    }
+
+    let (Some(code), Some(returned_state)) = (code, returned_state) else {
+        return;
+    };
+
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+
+    let pending = state.pending_auth.lock().unwrap().take();
+    let Some(pending) = pending else {
+        emit_auth_error(app, "No sign-in is in progress.");
+        return;
+    };
+    if pending.state != returned_state {
+        emit_auth_error(app, "Sign-in state mismatch; please try again.");
+        return;
+    }
+
+    let auth_url = state.config.auth_url.clone();
+    let verifier = pending.verifier;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match mcp::exchange_code(&auth_url, &code, &verifier).await {
+            Ok(token) => {
+                if let Some(state) = app.try_state::<AppState>() {
+                    *state.auth.lock().unwrap() = Some(Auth {
+                        role: token.role,
+                        token: token.access_token,
+                    });
+                }
+                let role_label = token.role_label;
+                let window_handle = app.clone();
+                let _ = app.run_on_main_thread(move || show_window(&window_handle));
+                let _ = app.emit(
+                    "spotlight-auth",
+                    AuthEvent {
+                        ok: true,
+                        role_label: Some(role_label),
+                        error: None,
+                    },
+                );
+            }
+            Err(error) => emit_auth_error(&app, &error.to_string()),
+        }
+    });
+}
+
+fn emit_auth_error(app: &AppHandle, message: &str) {
+    let _ = app.emit(
+        "spotlight-auth",
+        AuthEvent {
+            ok: false,
+            role_label: None,
+            error: Some(message.to_string()),
+        },
+    );
 }
 
 fn register_hotkey(app: &AppHandle, accelerator: &str) -> Result<(), String> {
@@ -341,13 +437,15 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_nspanel::init())
         .invoke_handler(tauri::generate_handler![
             ask_question,
             get_session,
-            login,
+            begin_login,
             logout,
+            dev_login,
             set_hotkey,
             hide_window,
             register_current_hotkey,
@@ -358,16 +456,16 @@ pub fn run() {
 
             install_panel(app.handle());
 
-            let session_path = app
+            let settings_path = app
                 .path()
                 .app_config_dir()
                 .map(|dir| dir.join("session.json"))
                 .unwrap_or_else(|_| PathBuf::from("session.json"));
-            let mut session = load_session(&session_path);
-            if session.hotkey.is_none() {
-                session.hotkey = Some(config.default_hotkey.clone());
+            let mut settings = load_settings(&settings_path);
+            if settings.hotkey.is_none() {
+                settings.hotkey = Some(config.default_hotkey.clone());
             }
-            let hotkey = session
+            let hotkey = settings
                 .hotkey
                 .clone()
                 .unwrap_or_else(|| config.default_hotkey.clone());
@@ -381,10 +479,25 @@ pub fn run() {
 
             app.manage(AppState {
                 config: config.clone(),
-                session: Mutex::new(session),
-                session_path,
+                settings: Mutex::new(settings),
+                settings_path,
                 hotkey_registered: Mutex::new(hotkey_registered),
+                auth: Mutex::new(None),
+                pending_auth: Mutex::new(None),
             });
+
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            {
+                let _ = app.deep_link().register_all();
+            }
+
+            let auth_handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    handle_auth_url(&auth_handle, &url);
+                }
+            });
+
             Ok(())
         })
         .run(tauri::generate_context!())

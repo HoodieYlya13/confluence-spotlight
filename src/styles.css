@@ -299,56 +299,30 @@ body {
   cursor: default;
 }
 
-#role-picker {
-  width: 100%;
-  margin-top: 4px;
-}
-
 .returned-note {
-  margin: 0 0 10px;
+  margin: 10px 0 0;
   color: var(--muted);
   font-size: 12px;
+  line-height: 1.5;
 }
 
-.role-options {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.dev-login {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
 }
 
-.role-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  padding: 11px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--row);
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-}
-
-.role-option:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-.role-option:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.role-name {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.role-key {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+.dev-login-label {
+  margin-bottom: 8px;
   font-size: 11px;
+  letter-spacing: 0.03em;
   color: var(--muted);
+}
+
+.dev-login-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
 }
 
 .settings-header {

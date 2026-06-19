@@ -3,14 +3,17 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { renderMarkdown } from "./markdown";
 
-type RoleOption = { key: string; label: string; available: boolean };
 type SessionView = {
   role: string | null;
   role_label: string | null;
   hotkey: string;
-  roles: RoleOption[];
 };
 type AnswerPayload = { answer: string; role: string };
+type AuthEvent = {
+  ok: boolean;
+  role_label: string | null;
+  error: string | null;
+};
 
 function el<T extends Element>(selector: string): T {
   return document.querySelector<T>(selector)!;
@@ -32,9 +35,9 @@ const badge = el<HTMLSpanElement>("#role-badge");
 const settingsBtn = el<HTMLButtonElement>("#settings-btn");
 
 const connectBtn = el<HTMLButtonElement>("#connect-btn");
-const rolePicker = el<HTMLDivElement>("#role-picker");
-const roleOptions = el<HTMLDivElement>("#role-options");
+const loginWaiting = el<HTMLDivElement>("#login-waiting");
 const loginError = el<HTMLDivElement>("#login-error");
+const devLogin = el<HTMLDivElement>("#dev-login");
 
 const settingsBack = el<HTMLButtonElement>("#settings-back");
 const settingsRole = el<HTMLDivElement>("#settings-role");
@@ -80,7 +83,6 @@ async function renderSession(): Promise<SessionView> {
     badge.textContent = session.role_label ?? session.role;
     showView("search");
   } else {
-    buildRolePicker(session.roles);
     resetLogin();
     showView("login");
   }
@@ -91,51 +93,46 @@ function resetLogin() {
   connectBtn.hidden = false;
   connectBtn.disabled = false;
   connectBtn.textContent = "Connect with CERN SSO";
-  rolePicker.hidden = true;
+  loginWaiting.hidden = true;
   loginError.hidden = true;
 }
 
-function buildRolePicker(roles: RoleOption[]) {
-  roleOptions.innerHTML = "";
-  for (const role of roles) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "role-option";
-    button.disabled = !role.available;
-
-    const name = document.createElement("span");
-    name.className = "role-name";
-    name.textContent = role.label;
-
-    const key = document.createElement("span");
-    key.className = "role-key";
-    key.textContent = role.available ? role.key : `${role.key} · no token`;
-
-    button.append(name, key);
-    button.addEventListener("click", () => void chooseRole(role.key));
-    roleOptions.appendChild(button);
-  }
-}
-
-function simulateConnect() {
+async function beginLogin() {
   connectBtn.disabled = true;
   connectBtn.textContent = "Opening browser…";
   loginError.hidden = true;
-  window.setTimeout(() => {
+  try {
+    await invoke("begin_login");
     connectBtn.hidden = true;
-    rolePicker.hidden = false;
-  }, 700);
+    loginWaiting.hidden = false;
+  } catch (error) {
+    resetLogin();
+    loginError.textContent = asMessage(error);
+    loginError.hidden = false;
+  }
 }
 
-async function chooseRole(role: string) {
+async function devConnect(role: string) {
+  loginError.hidden = true;
   try {
-    const session = await invoke<SessionView>("login", { role });
-    currentHotkey = session.hotkey;
-    badge.textContent = session.role_label ?? role;
-    showView("search");
+    await invoke("dev_login", { role });
+    loginWaiting.hidden = true;
+    await renderSession();
     focusInput();
   } catch (error) {
     loginError.textContent = asMessage(error);
+    loginError.hidden = false;
+  }
+}
+
+function onAuthEvent(event: AuthEvent) {
+  if (event.ok) {
+    loginError.hidden = true;
+    loginWaiting.hidden = true;
+    void renderSession().then(() => focusInput());
+  } else {
+    resetLogin();
+    loginError.textContent = event.error ?? "Sign-in failed.";
     loginError.hidden = false;
   }
 }
@@ -315,7 +312,14 @@ answerEl.addEventListener("click", (event) => {
   if (href) void openUrl(href);
 });
 
-connectBtn.addEventListener("click", () => simulateConnect());
+connectBtn.addEventListener("click", () => void beginLogin());
+
+if (import.meta.env.DEV) {
+  devLogin.hidden = false;
+  devLogin.querySelectorAll<HTMLButtonElement>("button[data-role]").forEach((button) => {
+    button.addEventListener("click", () => void devConnect(button.dataset.role!));
+  });
+}
 settingsBtn.addEventListener("click", () => openSettings());
 settingsBack.addEventListener("click", () => {
   showView("search");
@@ -356,5 +360,6 @@ document.addEventListener("click", (event) => {
 });
 
 void listen("spotlight-open", () => void onOpen());
+void listen<AuthEvent>("spotlight-auth", (event) => onAuthEvent(event.payload));
 
 void onOpen();

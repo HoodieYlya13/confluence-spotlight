@@ -26,12 +26,19 @@
 
           <button id="connect-btn" class="primary-btn" type="button">Connect with CERN SSO</button>
 
-          <div id="role-picker" hidden>
-            <p class="returned-note">Returned from sign-in — choose the identity to continue as (demo):</p>
-            <div id="role-options" class="role-options"></div>
+          <div id="login-waiting" class="returned-note" hidden>
+            Waiting for sign-in in your browser… choose a persona there, then return here.
           </div>
 
           <div id="login-error" class="form-error" hidden></div>
+
+          <div id="dev-login" class="dev-login" hidden>
+            <div class="dev-login-label">Dev sign-in — bypasses the browser round-trip</div>
+            <div class="dev-login-buttons">
+              <button class="ghost-btn" type="button" data-role="JUNIOR_OP">Junior Operator</button>
+              <button class="ghost-btn" type="button" data-role="ATS_CORE_LEAD">ATS Core Lead</button>
+            </div>
+          </div>
         </div>
       </section>
 
