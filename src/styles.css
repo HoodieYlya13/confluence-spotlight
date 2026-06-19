@@ -1,5 +1,5 @@
 :root {
-  --bg: rgba(24, 24, 27, 0.82);
+  --bg: #18181b;
   --border: rgba(255, 255, 255, 0.1);
   --text: #f4f4f5;
   --muted: #a1a1aa;
@@ -41,8 +41,6 @@ body {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--bg);
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
   overflow: hidden;
 }
@@ -450,7 +448,7 @@ body {
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: rgba(255, 255, 255, 0.86);
+    --bg: #ffffff;
     --border: rgba(0, 0, 0, 0.08);
     --text: #18181b;
     --muted: #71717a;
