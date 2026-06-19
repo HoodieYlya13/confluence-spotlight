@@ -223,7 +223,14 @@ fn toggle_window(app: &AppHandle) {
     }
 
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.center();
+        if let Ok(Some(monitor)) = window.current_monitor() {
+            let size = monitor.size();
+            let pos = monitor.position();
+            let _ = window.set_size(tauri::Size::Physical(*size));
+            let _ = window.set_position(tauri::Position::Physical(*pos));
+        } else {
+            let _ = window.center();
+        }
     }
     panel.show_and_make_key();
     let _ = app.emit("spotlight-open", ());

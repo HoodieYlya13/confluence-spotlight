@@ -337,6 +337,14 @@ window.addEventListener(
   true,
 );
 
+document.addEventListener("click", (event) => {
+  const target = event.target as HTMLElement;
+  const spotlight = document.getElementById("spotlight");
+  if (spotlight && !spotlight.contains(target)) {
+    void invoke("hide_window");
+  }
+});
+
 void listen("spotlight-open", () => void onOpen());
 
 void onOpen();
