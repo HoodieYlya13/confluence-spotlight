@@ -36,6 +36,7 @@ struct AppState {
     config: McpConfig,
     session: Mutex<Session>,
     session_path: PathBuf,
+    hotkey_registered: Mutex<bool>,
 }
 
 #[derive(Serialize)]
@@ -170,6 +171,11 @@ fn set_hotkey(
         save_session(&state.session_path, &session);
     }
 
+    {
+        let mut registered = state.hotkey_registered.lock().unwrap();
+        *registered = true;
+    }
+
     Ok(trimmed)
 }
 
@@ -203,6 +209,53 @@ async fn ask_question(
         answer,
         role: role_label,
     })
+}
+
+fn register_current_hotkey_internal(app: &AppHandle) -> Result<(), String> {
+    if let Some(state) = app.try_state::<AppState>() {
+        let mut registered = state.hotkey_registered.lock().unwrap();
+        if !*registered {
+            let current = {
+                let session = state.session.lock().unwrap();
+                session
+                    .hotkey
+                    .clone()
+                    .unwrap_or_else(|| state.config.default_hotkey.clone())
+            };
+            let _ = app.global_shortcut().unregister(current.as_str());
+            register_hotkey(app, &current)?;
+            *registered = true;
+        }
+    }
+    Ok(())
+}
+
+fn unregister_current_hotkey_internal(app: &AppHandle) -> Result<(), String> {
+    if let Some(state) = app.try_state::<AppState>() {
+        let mut registered = state.hotkey_registered.lock().unwrap();
+        if *registered {
+            let current = {
+                let session = state.session.lock().unwrap();
+                session
+                    .hotkey
+                    .clone()
+                    .unwrap_or_else(|| state.config.default_hotkey.clone())
+            };
+            let _ = app.global_shortcut().unregister(current.as_str());
+            *registered = false;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn register_current_hotkey(app: AppHandle) -> Result<(), String> {
+    register_current_hotkey_internal(&app)
+}
+
+#[tauri::command]
+fn unregister_current_hotkey(app: AppHandle) -> Result<(), String> {
+    unregister_current_hotkey_internal(&app)
 }
 
 #[tauri::command]
@@ -269,6 +322,14 @@ fn install_panel(app: &AppHandle) {
     handler.window_did_resign_key(move |_notification| {
         if let Ok(panel) = handle.get_webview_panel("main") {
             panel.hide();
+            let needs_restore = if let Some(state) = handle.try_state::<AppState>() {
+                !*state.hotkey_registered.lock().unwrap()
+            } else {
+                false
+            };
+            if needs_restore {
+                let _ = register_current_hotkey_internal(&handle);
+            }
         }
     });
     panel.set_event_handler(Some(handler.as_ref()));
@@ -288,7 +349,9 @@ pub fn run() {
             login,
             logout,
             set_hotkey,
-            hide_window
+            hide_window,
+            register_current_hotkey,
+            unregister_current_hotkey
         ])
         .setup(move |app| {
             app.set_activation_policy(ActivationPolicy::Accessory);
@@ -309,15 +372,19 @@ pub fn run() {
                 .clone()
                 .unwrap_or_else(|| config.default_hotkey.clone());
 
+            let mut hotkey_registered = false;
+            if let Err(error) = register_hotkey(app.handle(), &hotkey) {
+                eprintln!("Failed to register global shortcut '{hotkey}': {error}");
+            } else {
+                hotkey_registered = true;
+            }
+
             app.manage(AppState {
                 config: config.clone(),
                 session: Mutex::new(session),
                 session_path,
+                hotkey_registered: Mutex::new(hotkey_registered),
             });
-
-            if let Err(error) = register_hotkey(app.handle(), &hotkey) {
-                eprintln!("Failed to register global shortcut '{hotkey}': {error}");
-            }
             Ok(())
         })
         .run(tauri::generate_context!())

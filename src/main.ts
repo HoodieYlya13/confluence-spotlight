@@ -194,7 +194,7 @@ function setHotkeyDisplay(accelerator: string) {
   hotkeyRecord.textContent = formatHotkey(accelerator);
 }
 
-function enterRecording() {
+async function enterRecording() {
   recording = true;
   candidateHotkey = null;
   hotkeyRecord.classList.add("recording");
@@ -202,15 +202,25 @@ function enterRecording() {
   hotkeySave.hidden = true;
   hotkeyCancel.hidden = false;
   hotkeyError.hidden = true;
+  try {
+    await invoke("unregister_current_hotkey");
+  } catch (err) {
+    console.error("Failed to unregister hotkey:", err);
+  }
 }
 
-function exitRecording() {
+async function exitRecording() {
   recording = false;
   candidateHotkey = null;
   hotkeyRecord.classList.remove("recording");
   hotkeySave.hidden = true;
   hotkeyCancel.hidden = true;
   setHotkeyDisplay(currentHotkey);
+  try {
+    await invoke("register_current_hotkey");
+  } catch (err) {
+    console.error("Failed to register hotkey:", err);
+  }
 }
 
 function keyToken(code: string): string | null {
