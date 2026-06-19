@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Confluence Spotlight Beta",
+  "identifier": "dev.hoodieylya13.confluence-spotlight-beta",
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["confluence-spotlight-beta"]
+      }
+    }
+  }
+}

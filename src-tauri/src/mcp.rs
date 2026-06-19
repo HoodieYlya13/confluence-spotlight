@@ -12,7 +12,6 @@ const DEFAULT_SERVER_URL: &str = "https://hoodieylya13-mcp-confluence-documentat
 const DEFAULT_AUTH_URL: &str = "https://confluence-bot.hy13dev.com";
 const DEFAULT_HOTKEY: &str = "CmdOrCtrl+Shift+Space";
 const ASK_TOOL: &str = "ask_accelerator_operations";
-pub const REDIRECT_URI: &str = "confluence-spotlight://auth";
 
 pub const ROLES: &[(&str, &str)] = &[
     ("JUNIOR_OP", "Junior Operator"),
@@ -72,13 +71,13 @@ pub fn pkce_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(hasher.finalize())
 }
 
-pub fn authorize_url(auth_url: &str, state: &str, challenge: &str) -> String {
+pub fn authorize_url(auth_url: &str, state: &str, challenge: &str, redirect_uri: &str) -> String {
     format!(
         "{}/spotlight-login?state={}&code_challenge={}&redirect_uri={}",
         auth_url.trim_end_matches('/'),
         urlencode(state),
         urlencode(challenge),
-        urlencode(REDIRECT_URI),
+        urlencode(redirect_uri),
     )
 }
 

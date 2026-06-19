@@ -7,7 +7,10 @@ pub use mcp::{ask, McpConfig};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{ActivationPolicy, AppHandle, Emitter, Manager};
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
+use tauri::{AppHandle, Emitter, Manager};
+#[cfg(target_os = "macos")]
 use tauri_nspanel::{
     tauri_panel, CollectionBehavior, ManagerExt, PanelLevel, StyleMask, WebviewWindowExt,
 };
@@ -15,6 +18,7 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_opener::OpenerExt;
 
+#[cfg(target_os = "macos")]
 tauri_panel! {
     panel!(SpotlightPanel {
         config: {
@@ -123,7 +127,8 @@ fn begin_login(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), 
     let verifier = mcp::random_token();
     let challenge = mcp::pkce_challenge(&verifier);
     let csrf = mcp::random_token();
-    let url = mcp::authorize_url(&state.config.auth_url, &csrf, &challenge);
+    let redirect_uri = deep_link_redirect_uri(&app);
+    let url = mcp::authorize_url(&state.config.auth_url, &csrf, &challenge, &redirect_uri);
 
     {
         let mut pending = state.pending_auth.lock().unwrap();
@@ -278,31 +283,74 @@ fn unregister_current_hotkey(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn hide_window(app: AppHandle) {
-    if let Ok(panel) = app.get_webview_panel("main") {
-        panel.hide();
+    hide_window_impl(&app);
+}
+
+fn deep_link_redirect_uri(app: &AppHandle) -> String {
+    let scheme = app
+        .config()
+        .plugins
+        .0
+        .get("deep-link")
+        .and_then(|value| value.get("desktop"))
+        .and_then(|value| value.get("schemes"))
+        .and_then(|value| value.as_array())
+        .and_then(|schemes| schemes.first())
+        .and_then(|value| value.as_str())
+        .unwrap_or("confluence-spotlight");
+    format!("{scheme}://auth")
+}
+
+fn fill_active_monitor(window: &tauri::WebviewWindow) {
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        let size = monitor.size();
+        let pos = monitor.position();
+        let _ = window.set_size(tauri::Size::Physical(*size));
+        let _ = window.set_position(tauri::Position::Physical(*pos));
+    } else {
+        let _ = window.center();
     }
 }
 
+#[cfg(target_os = "macos")]
 fn show_window(app: &AppHandle) {
     let Ok(panel) = app.get_webview_panel("main") else {
         return;
     };
 
     if let Some(window) = app.get_webview_window("main") {
-        if let Ok(Some(monitor)) = window.current_monitor() {
-            let size = monitor.size();
-            let pos = monitor.position();
-            let _ = window.set_size(tauri::Size::Physical(*size));
-            let _ = window.set_position(tauri::Position::Physical(*pos));
-        } else {
-            let _ = window.center();
-        }
+        fill_active_monitor(&window);
     }
 
     panel.show_and_make_key();
     let _ = app.emit("spotlight-open", ());
 }
 
+#[cfg(not(target_os = "macos"))]
+fn show_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        fill_active_monitor(&window);
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    let _ = app.emit("spotlight-open", ());
+}
+
+#[cfg(target_os = "macos")]
+fn hide_window_impl(app: &AppHandle) {
+    if let Ok(panel) = app.get_webview_panel("main") {
+        panel.hide();
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn hide_window_impl(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn toggle_window(app: &AppHandle) {
     let Ok(panel) = app.get_webview_panel("main") else {
         return;
@@ -313,6 +361,17 @@ fn toggle_window(app: &AppHandle) {
         return;
     }
 
+    show_window(app);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn toggle_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+            return;
+        }
+    }
     show_window(app);
 }
 
@@ -395,6 +454,34 @@ fn register_hotkey(app: &AppHandle, accelerator: &str) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+#[cfg(target_os = "macos")]
+fn setup_window(app: &AppHandle) {
+    install_panel(app);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn setup_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = window.set_always_on_top(true);
+
+    let handle = app.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Focused(false) = event {
+            hide_window_impl(&handle);
+            let needs_restore = handle
+                .try_state::<AppState>()
+                .map(|state| !*state.hotkey_registered.lock().unwrap())
+                .unwrap_or(false);
+            if needs_restore {
+                let _ = register_current_hotkey_internal(&handle);
+            }
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
 fn install_panel(app: &AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
@@ -435,11 +522,15 @@ fn install_panel(app: &AppHandle) {
 pub fn run() {
     let config = McpConfig::from_env();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_nspanel::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
+
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_nspanel::init());
+
+    builder
         .invoke_handler(tauri::generate_handler![
             ask_question,
             get_session,
@@ -452,9 +543,10 @@ pub fn run() {
             unregister_current_hotkey
         ])
         .setup(move |app| {
+            #[cfg(target_os = "macos")]
             app.set_activation_policy(ActivationPolicy::Accessory);
 
-            install_panel(app.handle());
+            setup_window(app.handle());
 
             let settings_path = app
                 .path()

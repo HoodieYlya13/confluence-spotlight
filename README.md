@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="src-tauri/icons/128x128@2x.png" alt="Confluence Spotlight" width="96" height="96" />
+</p>
+
 # Confluence Spotlight
 
 A desktop **spotlight** client for the [accelerator-operations MCP server](https://github.com/HoodieYlya13/mcp-confluence-documentation-rag). Press a global hotkey, ask an operations question, get a short grounded answer with links straight to the source Confluence pages — without leaving what you're doing.
@@ -5,6 +9,18 @@ A desktop **spotlight** client for the [accelerator-operations MCP server](https
 It is a thin, security-conscious window over the same RBAC-governed server the web console fronts: the bearer token lives only in the Rust process and is never exposed to the webview (the desktop analog of the web app's `server-only` tokens). Sign-in is a real **deep-link OAuth round trip** (Authorization Code + PKCE) through the web console, so the shipped app contains no secrets — it fetches a token at sign-in and never persists it. The MCP call uses the official Rust SDK (`rmcp`) — so the project drives one server from clients in Python, TypeScript, and Rust.
 
 Design rationale lives in [`TAD.md`](./TAD.md).
+
+## Download
+
+Prebuilt installers for **macOS, Windows, and Linux** are attached to each [GitHub release](https://github.com/HoodieYlya13/confluence-spotlight/releases/latest), built automatically by the cross-platform [`release` workflow](.github/workflows/release.yml):
+
+| Platform | Artifact |
+|---|---|
+| macOS | `.dmg` (universal — Apple Silicon + Intel) |
+| Windows | `.exe` / `.msi` installer |
+| Linux | `.AppImage` / `.deb` |
+
+The builds are **unsigned** (this is a demo); see [Build & distribute](#build--distribute) for the per-OS first-launch steps.
 
 ## Prerequisites
 
@@ -44,7 +60,7 @@ The **gear** in the bar opens **Settings**, where you can:
 
 Because the deep-link round-trip can't complete in dev, debug builds show a **Dev sign-in** row under the Connect button with one button per persona. Each reads `MCP_TOKEN_<ROLE>` from `.env` and connects directly — the same token source the `probe` example uses. This row is compiled in only under `debug_assertions`; a released (`tauri build`) binary has no token-reading path and shows only the real browser sign-in.
 
-On macOS the bar is an `NSPanel`, so it floats over whatever you are doing — including apps in fullscreen — and across all Spaces, without pulling you out of the app underneath. It runs as an accessory (no Dock icon and no Cmd-Tab entry, like Raycast). See [`TAD.md`](./TAD.md) for the rationale.
+On macOS the bar is an `NSPanel`, so it floats over whatever you are doing — including apps in fullscreen — and across all Spaces, without pulling you out of the app underneath. It runs as an accessory (no Dock icon and no Cmd-Tab entry, like Raycast). On **Windows and Linux** the same bar is a frameless, always-on-top, transparent window that dismisses on blur, **Esc**, or click-away — the cross-platform analog of the panel. See [`TAD.md`](./TAD.md) for the rationale.
 
 ## Verify the data path (no GUI)
 
@@ -59,16 +75,36 @@ Prints the grounded answer and its source links straight from the server, provin
 
 ## Build & distribute
 
+Cross-platform installers are produced by the GitHub Actions [`release` workflow](.github/workflows/release.yml) (`tauri-apps/tauri-action`) on every `v*` tag — macOS (universal `.dmg`), Windows (`.exe`/`.msi`), Linux (`.AppImage`/`.deb`) — and attached to a draft GitHub release. Cut one by pushing a tag:
+
 ```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+To build locally for your own platform:
+
+```bash
+bun install
 bun run tauri build
 ```
 
-Produces a `.app` and a `.dmg` under `src-tauri/target/release/bundle/`; the `.dmg` is the downloadable artifact. Make sure `DEFAULT_AUTH_URL` (in `src-tauri/src/mcp.rs`) points at your deployed console first — or build with `SPOTLIGHT_AUTH_URL=… MCP_SERVER_URL=… bun run tauri build`.
+Artifacts land under `src-tauri/target/release/bundle/`. Make sure `DEFAULT_AUTH_URL` / `DEFAULT_SERVER_URL` (in `src-tauri/src/mcp.rs`) point at your deployed console/server — or override at build time with `SPOTLIGHT_AUTH_URL=… MCP_SERVER_URL=… bun run tauri build`.
 
-The build is **unsigned** (this is a demo), so the first launch is blocked by Gatekeeper. Either right-click the app → **Open**, or clear the quarantine flag:
+### Local "Beta" build, side by side with the released app
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/confluence-spotlight.app"
+bun run tauri:beta
 ```
 
-Install the `.app` into `/Applications` so the `confluence-spotlight://` deep link resolves. A GitHub Actions `tauri-apps/tauri-action` workflow can attach the `.dmg` to a Release for one-click download.
+This builds **Confluence Spotlight Beta** — a distinct product name, bundle identifier, and deep-link scheme (`confluence-spotlight-beta://`), all defined in [`src-tauri/tauri.beta.conf.json`](src-tauri/tauri.beta.conf.json). It installs alongside the released **Confluence Spotlight** without colliding, and its sign-in still round-trips because the console allowlists both schemes. Use it to keep your own up-to-date local build while still running the downloaded release.
+
+### First launch (unsigned)
+
+The builds are unsigned, so the OS warns on first launch:
+
+- **macOS** — install into `/Applications` (so the `confluence-spotlight://` deep link resolves), then right-click → **Open**, or clear the quarantine flag:
+  ```bash
+  xattr -dr com.apple.quarantine "/Applications/Confluence Spotlight.app"
+  ```
+- **Windows** — SmartScreen: **More info → Run anyway**.
+- **Linux** — `chmod +x` the `.AppImage`, or install the `.deb`.
