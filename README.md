@@ -12,7 +12,7 @@ Design rationale lives in [`TAD.md`](./TAD.md).
 
 ## Download
 
-Prebuilt installers for **macOS, Windows, and Linux** are attached to each [GitHub release](https://github.com/HoodieYlya13/confluence-spotlight/releases/latest), built automatically by the cross-platform [`release` workflow](.github/workflows/release.yml):
+Prebuilt installers for **macOS, Windows, and Linux** are available on the [GitHub Releases](https://github.com/HoodieYlya13/confluence-spotlight/releases) page, built automatically by the cross-platform [`release` workflow](.github/workflows/release.yml):
 
 | Platform | Artifact |
 |---|---|
@@ -20,7 +20,7 @@ Prebuilt installers for **macOS, Windows, and Linux** are attached to each [GitH
 | Windows | `.exe` / `.msi` installer |
 | Linux | `.AppImage` / `.deb` |
 
-The builds are **unsigned** (this is a demo); see [Build & distribute](#build--distribute) for the per-OS first-launch steps.
+The builds are **unsigned** (this is a demo); see [First launch (unsigned)](#first-launch-unsigned) below for the bypass steps on each OS.
 
 ## Prerequisites
 
@@ -100,11 +100,16 @@ This builds **Confluence Spotlight Beta** — a distinct product name, bundle id
 
 ### First launch (unsigned)
 
-The builds are unsigned, so the OS warns on first launch:
+Because the app is built on GitHub Actions and is unsigned, operating systems and antivirus software will flag it on first launch:
 
-- **macOS** — install into `/Applications` (so the `confluence-spotlight://` deep link resolves), then right-click → **Open**, or clear the quarantine flag:
-  ```bash
-  xattr -dr com.apple.quarantine "/Applications/Confluence Spotlight.app"
-  ```
-- **Windows** — SmartScreen: **More info → Run anyway**.
+- **macOS**
+  1. Move the app from the `.dmg` into your `/Applications` directory (required for the `confluence-spotlight://` deep link to resolve).
+  2. To bypass Gatekeeper, clear the quarantine flag manually in the Terminal:
+     ```bash
+     xattr -dr com.apple.quarantine "/Applications/Confluence Spotlight.app"
+     ```
+- **Windows**
+  * **SmartScreen (Standard):** Click **More info** (Informations complémentaires) then **Run anyway** (Exécuter quand même).
+  * **Enterprise EDR (Cortex XDR / work environments):** If your workplace antivirus (like Cortex XDR) blocks the installer with a "Suspect executable detected" (Exécutable suspect détecté) alert, this is because the installer is an unsigned binary with a new/unknown signature. 
+    * *To bypass:* Either request your IT department whitelist the binary, or run the app directly from source on your local machine using the development environment commands below (as local compilation is typically permitted by EDR software).
 - **Linux** — `chmod +x` the `.AppImage`, or install the `.deb`.
