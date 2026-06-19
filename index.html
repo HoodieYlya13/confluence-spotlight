@@ -10,25 +10,90 @@
 
   <body>
     <div id="spotlight">
-      <form id="ask-form" autocomplete="off">
-        <svg class="search-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-          <circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.8" />
-          <line x1="14" y1="14" x2="18" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-        </svg>
-        <input
-          id="question"
-          type="text"
-          placeholder="Ask the accelerator operations assistant…"
-          maxlength="300"
-          autofocus
-        />
-        <span id="role-badge" class="badge"></span>
-      </form>
+      <section id="login-view" hidden>
+        <div class="login-card">
+          <svg class="login-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M12 2 4 5.5v6c0 4.4 3.1 8.4 8 10 4.9-1.6 8-5.6 8-10v-6L12 2Z"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linejoin="round"
+            />
+            <path d="m8.5 12 2.4 2.4L15.5 9.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <h2>Accelerator Operations</h2>
+          <p class="login-sub">Sign in to ask operational questions with your clearance.</p>
 
-      <div id="panel" hidden>
-        <div id="status" hidden></div>
-        <div id="answer" class="answer"></div>
-      </div>
+          <button id="connect-btn" class="primary-btn" type="button">Connect with CERN SSO</button>
+
+          <div id="role-picker" hidden>
+            <p class="returned-note">Returned from sign-in — choose the identity to continue as (demo):</p>
+            <div id="role-options" class="role-options"></div>
+          </div>
+
+          <div id="login-error" class="form-error" hidden></div>
+        </div>
+      </section>
+
+      <section id="search-view" hidden>
+        <form id="ask-form" autocomplete="off">
+          <svg class="search-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.8" />
+            <line x1="14" y1="14" x2="18" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          </svg>
+          <input
+            id="question"
+            type="text"
+            placeholder="Ask the accelerator operations assistant…"
+            maxlength="300"
+            autofocus
+          />
+          <span id="role-badge" class="badge"></span>
+          <button id="settings-btn" class="icon-btn" type="button" title="Settings" aria-label="Settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+        </form>
+
+        <div id="panel" hidden>
+          <div id="status" hidden></div>
+          <div id="answer" class="answer"></div>
+        </div>
+      </section>
+
+      <section id="settings-view" hidden>
+        <header class="settings-header">
+          <button id="settings-back" class="icon-btn" type="button" title="Back" aria-label="Back">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M12 4 6 10l6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <h2>Settings</h2>
+        </header>
+
+        <div class="settings-body">
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Identity</div>
+              <div id="settings-role" class="setting-value"></div>
+            </div>
+            <button id="logout-btn" class="ghost-btn" type="button">Log out</button>
+          </div>
+
+          <div class="setting-row column">
+            <div class="setting-label">Global hotkey</div>
+            <div class="hotkey-row">
+              <button id="hotkey-record" class="hotkey-display" type="button"></button>
+              <button id="hotkey-save" class="ghost-btn" type="button" hidden>Save</button>
+              <button id="hotkey-cancel" class="ghost-btn" type="button" hidden>Cancel</button>
+            </div>
+            <div class="setting-hint">Click the shortcut, then press a new key combination.</div>
+            <div id="hotkey-error" class="form-error" hidden></div>
+          </div>
+        </div>
+      </section>
     </div>
   </body>
 </html>

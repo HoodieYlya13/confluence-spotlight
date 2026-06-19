@@ -3,52 +3,91 @@ use rmcp::model::{CallToolRequestParams, CallToolResult};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::ServiceExt;
+use std::collections::HashMap;
 
 const DEFAULT_SERVER_URL: &str = "https://hoodieylya13-mcp-confluence-documentation-rag.hf.space";
-const DEFAULT_ROLE_LABEL: &str = "JUNIOR_OP";
 const DEFAULT_HOTKEY: &str = "CmdOrCtrl+Shift+Space";
 const ASK_TOOL: &str = "ask_accelerator_operations";
+
+pub const ROLES: &[(&str, &str)] = &[
+    ("JUNIOR_OP", "Junior Operator"),
+    ("ATS_CORE_LEAD", "ATS Core Lead"),
+];
+
+pub fn role_label(key: &str) -> Option<&'static str> {
+    ROLES
+        .iter()
+        .find(|(role_key, _)| *role_key == key)
+        .map(|(_, label)| *label)
+}
 
 #[derive(Clone)]
 pub struct McpConfig {
     pub server_url: String,
-    pub token: String,
-    pub role_label: String,
-    pub hotkey: String,
+    pub default_hotkey: String,
+    tokens: HashMap<String, String>,
 }
 
 impl McpConfig {
     pub fn from_env() -> Self {
         let _ = dotenvy::dotenv();
+
+        let mut tokens = HashMap::new();
+        if let Some(token) = non_empty_env("MCP_TOKEN_JUNIOR_OP") {
+            tokens.insert("JUNIOR_OP".to_string(), token);
+        }
+        if let Some(token) = non_empty_env("MCP_TOKEN_ATS_CORE_LEAD") {
+            tokens.insert("ATS_CORE_LEAD".to_string(), token);
+        }
+        if !tokens.contains_key("JUNIOR_OP") {
+            if let Some(token) = non_empty_env("SPOTLIGHT_TOKEN") {
+                tokens.insert("JUNIOR_OP".to_string(), token);
+            }
+        }
+
         Self {
             server_url: env_or("MCP_SERVER_URL", DEFAULT_SERVER_URL),
-            token: std::env::var("SPOTLIGHT_TOKEN").unwrap_or_default(),
-            role_label: env_or("SPOTLIGHT_ROLE_LABEL", DEFAULT_ROLE_LABEL),
-            hotkey: env_or("SPOTLIGHT_HOTKEY", DEFAULT_HOTKEY),
+            default_hotkey: env_or("SPOTLIGHT_HOTKEY", DEFAULT_HOTKEY),
+            tokens,
         }
     }
 
-    fn endpoint(&self) -> String {
-        format!("{}/mcp", self.server_url.trim_end_matches('/'))
+    pub fn token_for(&self, role: &str) -> Option<&str> {
+        self.tokens
+            .get(role)
+            .map(|token| token.as_str())
+            .filter(|token| !token.trim().is_empty())
+    }
+
+    pub fn has_token(&self, role: &str) -> bool {
+        self.token_for(role).is_some()
+    }
+}
+
+fn non_empty_env(key: &str) -> Option<String> {
+    match std::env::var(key) {
+        Ok(value) if !value.trim().is_empty() => Some(value),
+        _ => None,
     }
 }
 
 fn env_or(key: &str, fallback: &str) -> String {
-    match std::env::var(key) {
-        Ok(value) if !value.trim().is_empty() => value,
-        _ => fallback.to_string(),
-    }
+    non_empty_env(key).unwrap_or_else(|| fallback.to_string())
 }
 
-pub async fn ask(cfg: &McpConfig, question: &str) -> Result<String> {
-    if cfg.token.trim().is_empty() {
+fn endpoint(server_url: &str) -> String {
+    format!("{}/mcp", server_url.trim_end_matches('/'))
+}
+
+pub async fn ask(server_url: &str, token: &str, question: &str) -> Result<String> {
+    if token.trim().is_empty() {
         return Err(anyhow!(
-            "SPOTLIGHT_TOKEN is not configured; the spotlight cannot authenticate to the server."
+            "No token is configured for this role; the spotlight cannot authenticate to the server."
         ));
     }
 
-    let transport_config = StreamableHttpClientTransportConfig::with_uri(cfg.endpoint())
-        .auth_header(cfg.token.clone());
+    let transport_config = StreamableHttpClientTransportConfig::with_uri(endpoint(server_url))
+        .auth_header(token.to_string());
     let transport = StreamableHttpClientTransport::from_config(transport_config);
     let service = ().serve(transport).await?;
 

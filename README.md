@@ -18,11 +18,11 @@ Copy `.env.example` to `.env` and fill in real values:
 | Variable | Meaning |
 |---|---|
 | `MCP_SERVER_URL` | Base URL of the deployed MCP server |
-| `SPOTLIGHT_TOKEN` | Bearer token for the role this instance runs as (held in Rust only) |
-| `SPOTLIGHT_ROLE_LABEL` | Cosmetic badge text, e.g. `JUNIOR_OP` |
-| `SPOTLIGHT_HOTKEY` | Global shortcut, default `CmdOrCtrl+Shift+Space` |
+| `MCP_TOKEN_JUNIOR_OP` | Bearer token mapped to the Junior Operator role (held in Rust only) |
+| `MCP_TOKEN_ATS_CORE_LEAD` | Bearer token mapped to the ATS Core Lead role (held in Rust only) |
+| `SPOTLIGHT_HOTKEY` | Default global shortcut, e.g. `CmdOrCtrl+Shift+Space` (customizable in Settings) |
 
-`.env` is gitignored — never commit the token.
+`.env` is gitignored — never commit the tokens. A role with no configured token simply appears greyed-out in the login picker.
 
 ## Run
 
@@ -31,7 +31,13 @@ bun install
 bun run tauri dev
 ```
 
-The window starts hidden. Press the hotkey (default **Cmd+Shift+Space**) to summon the bar, type a question, and press Enter. Click a source link to open the Confluence page in your system browser. Press **Esc** or click away to dismiss.
+The window starts hidden. Press the hotkey (default **Cmd+Shift+Space**) to summon it.
+
+On first run it shows a **connect** screen: "Connect with CERN SSO" simulates a browser sign-in and returns a role picker — choose **Junior Operator** or **ATS Core Lead** to continue as that identity (a demo stand-in for a real SSO flow). Once connected, type a question and press Enter; click a source link to open the Confluence page in your system browser; press **Esc** or click away to dismiss. Your choice is remembered across restarts.
+
+The **gear** in the bar opens **Settings**, where you can:
+- **Log out** to return to the connect screen and switch roles for the demo.
+- **Change the global hotkey** — click the shortcut, press a new key combination, and Save (the new shortcut is registered immediately and persisted).
 
 On macOS the bar is an `NSPanel`, so it floats over whatever you are doing — including apps in fullscreen — and across all Spaces, without pulling you out of the app underneath. It runs as an accessory (no Dock icon and no Cmd-Tab entry, like Raycast); under `bun run tauri dev` you quit it from the terminal. See [`TAD.md`](./TAD.md) for the rationale.
 
@@ -39,7 +45,9 @@ On macOS the bar is an `NSPanel`, so it floats over whatever you are doing — i
 
 ```bash
 cd src-tauri
-SPOTLIGHT_TOKEN=… MCP_SERVER_URL=… cargo run --example probe "your question here"
+MCP_TOKEN_JUNIOR_OP=… MCP_SERVER_URL=… cargo run --example probe "your question here"
+# or target the lead role:
+SPOTLIGHT_ROLE=ATS_CORE_LEAD MCP_TOKEN_ATS_CORE_LEAD=… MCP_SERVER_URL=… cargo run --example probe "…"
 ```
 
 Prints the grounded answer and its source links straight from the server, proving the Rust MCP client works without launching the window.

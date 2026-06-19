@@ -12,9 +12,9 @@ This is a third client over one server — Python server, TypeScript web console
 
 ### The bearer token never leaves the Rust process — desktop `server-only`
 
-This is the load-bearing decision and the direct analog of the web app's `server-only` token handling. The web console keeps tokens out of the browser; here the equivalent boundary is process-internal. `MCP_SERVER_URL`, `SPOTLIGHT_TOKEN`, `SPOTLIGHT_ROLE_LABEL` and `SPOTLIGHT_HOTKEY` are read **only** in Rust (`mcp.rs`, `McpConfig::from_env`, via `dotenvy`). The webview is a thin renderer: it calls one Tauri command, `ask_question`, and receives back only `{ answer, role }` — rendered text and a cosmetic label. The token is never sent into the webview, never embedded in JS, never reachable from the page context.
+This is the load-bearing decision and the direct analog of the web app's `server-only` token handling. The web console keeps tokens out of the browser; here the equivalent boundary is process-internal. `MCP_SERVER_URL`, `MCP_TOKEN_JUNIOR_OP`, `MCP_TOKEN_ATS_CORE_LEAD` and `SPOTLIGHT_HOTKEY` are read **only** in Rust (`mcp.rs`, `McpConfig::from_env`, via `dotenvy`), and the per-role tokens are held in a private `HashMap` on `McpConfig` — there is no command that returns a token. The webview is a thin renderer: it calls `ask_question` and receives back only `{ answer, role }` — rendered text and a cosmetic label. The token is never sent into the webview, never embedded in JS, never reachable from the page context.
 
-This mirrors the server's own `STDIO_ROLE` model: over stdio the server resolves the caller's role from the OS process owner, not from anything the client sends. The desktop app is exactly that shape — one process, one configured role, the secret held by the trusted side. The client still never sends its own role; the server resolves it from the bearer token, as everywhere else in the system.
+The login flow (below) does not weaken this: the webview sends a **role choice** (`login(role)`), never a token. Rust maps the chosen role to the matching pre-provisioned token. That is exactly the OAuth shape — the browser hands the trusted process an identity; the secret stays on the trusted side. This also mirrors the server's own model: the client never sends its own role to the *MCP server*; the server resolves it from the bearer token, as everywhere else in the system.
 
 ### A real Rust MCP client (`rmcp`), not a REST shim
 
@@ -22,11 +22,19 @@ This mirrors the server's own `STDIO_ROLE` model: over stdio the server resolves
 
 The answer is extracted preferring the tool's `structured_content.result` (the string the agent returns) and falling back to concatenated text content — the same precedence the TypeScript client uses.
 
-### Single role with a visible badge, not an in-window toggle
+### Simulated SSO login, with logout to switch roles
 
-The web console's job is the side-by-side RBAC diff. The spotlight's job is a fast personal answer, so it runs as **one** configured role and shows it as a badge in the bar (`role_label` command + the `SPOTLIGHT_ROLE_LABEL` env value). This keeps the secure-token story (the badge is honest about clearance) without turning the spotlight into a second playground. Two instances with two tokens can still be run side by side to demonstrate the difference; the product decision is that a single spotlight is a personal tool, not a comparison.
+The spotlight runs as **one** role at a time (a personal tool, not the web console's side-by-side RBAC diff), but *which* role is chosen at runtime through a login flow rather than baked into a single env var. On first summon — or after logout — the webview shows a connect screen. "Connect with CERN SSO" simulates a browser round-trip (a short delay, no real redirect) and returns to a **role picker** listing the roles that have a configured token. Picking one calls `login(role)`; the bar then operates as that identity, shown in the badge. A gear opens **Settings**, which carries a **Log out** action that returns to the connect screen so a demo can switch between Junior Operator and ATS Core Lead live.
 
-The badge label is configuration, not server truth: the MCP tools resolve role server-side from the token and there is no `whoami` tool, so the app cannot derive the role name from the token alone. Adding a `whoami` tool server-side is the clean future fix and is deliberately deferred.
+This is deliberately a **simulation**: there is no real identity provider and the two tokens are pre-provisioned locally. The login picks *which* pre-provisioned token Rust uses; it does not mint or fetch one. The honest framing for a real deployment — a true IdP/OAuth flow returning a per-session minted token — is the future fix and is deliberately deferred. What the simulation faithfully demonstrates is the token boundary: the webview only ever names a role; the secret never crosses into the page.
+
+The chosen role and the custom hotkey are persisted to `session.json` in the app config dir (`app_config_dir()`), written by Rust (`save_session`). So "first run prompts to connect" holds only until the first login; the app reopens already signed in until the user logs out. The file holds a role *name* and an accelerator string — never a token.
+
+The badge label is still configuration-derived, not server truth: the MCP tools resolve role server-side from the token and there is no `whoami` tool, so the app maps the chosen role key to a display label (`mcp::role_label`) rather than deriving it from the token. Adding a `whoami` tool server-side remains the clean future fix.
+
+### Customizable global hotkey, validated by re-registration
+
+Settings lets the user record a new summon shortcut: the webview captures one `keydown`, builds a Tauri accelerator string from the modifiers + `event.code` (`toAccelerator`), and requires at least one non-Shift modifier so a bare key cannot be captured. The candidate is only persisted on explicit Save. Validation is not duplicated in the frontend — `set_hotkey` unregisters the current shortcut, attempts to register the candidate, and on failure re-registers the old one and returns the error to the UI. So the global-shortcut plugin's own parser is the single source of truth for what is a valid accelerator; an unparseable or unavailable combination surfaces as an inline error and nothing is saved. The accepted hotkey is persisted alongside the role in `session.json` and re-registered on next launch.
 
 ### Frameless NSPanel that floats over fullscreen apps, dismiss-on-blur
 
@@ -57,6 +65,6 @@ The web console fronts the server with Upstash because it is a public web face. 
 
 ## Verification
 
-- **Core data path:** `cargo run --example probe` (with `SPOTLIGHT_TOKEN`/`MCP_SERVER_URL` set) calls `mcp::ask` against the live server and prints the grounded answer + source links — the GUI-free proof the client works.
+- **Core data path:** `cargo run --example probe` (with `MCP_TOKEN_JUNIOR_OP`/`MCP_SERVER_URL` set; `SPOTLIGHT_ROLE` selects which role's token to use, default `JUNIOR_OP`) calls `mcp::ask` against the live server and prints the grounded answer + source links — the GUI-free proof the client works.
 - **Compiles:** `cargo check --examples`, `cargo clippy`, `cargo fmt --check`; frontend `bun run build` (runs `tsc`).
 - **Manual:** `bun run tauri dev`, press the hotkey, ask, click a link (opens in the system browser), Esc/blur to dismiss.

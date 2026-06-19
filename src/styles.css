@@ -6,6 +6,7 @@
   --accent: #38bdf8;
   --hex: #c4b5fd;
   --row: rgba(255, 255, 255, 0.04);
+  --danger: #f87171;
 }
 
 * {
@@ -215,6 +216,236 @@ body {
   border-bottom: none;
 }
 
+.icon-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-btn:hover {
+  color: var(--text);
+  background: var(--row);
+}
+
+.form-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+#login-view {
+  padding: 30px 28px;
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+}
+
+.login-mark {
+  width: 40px;
+  height: 40px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.login-card h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.login-sub {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.primary-btn {
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  padding: 11px 14px;
+  background: var(--accent);
+  color: #06121b;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary-btn:hover {
+  filter: brightness(1.06);
+}
+
+.primary-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+#role-picker {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.returned-note {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.role-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.role-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--row);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.role-option:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.role-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.role-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.role-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.setting-row.column {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.setting-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+
+.setting-value {
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ghost-btn {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 12px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ghost-btn:hover {
+  background: var(--row);
+}
+
+#logout-btn {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.hotkey-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hotkey-display {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  min-width: 120px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--row);
+  color: var(--text);
+  cursor: pointer;
+  text-align: center;
+}
+
+.hotkey-display.recording {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.setting-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 @media (prefers-color-scheme: light) {
   :root {
     --bg: rgba(255, 255, 255, 0.86);
@@ -224,6 +455,7 @@ body {
     --accent: #0284c7;
     --hex: #6d28d9;
     --row: rgba(0, 0, 0, 0.03);
+    --danger: #dc2626;
   }
   .answer {
     color: #27272a;
