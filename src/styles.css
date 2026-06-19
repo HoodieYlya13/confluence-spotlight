@@ -27,9 +27,9 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   height: 100vh;
-  padding: 24px;
+  padding: 30vh 24px;
 }
 
 #spotlight {
@@ -37,7 +37,7 @@ body {
   flex-direction: column;
   width: 100%;
   max-width: 700px;
-  max-height: calc(100vh - 200px);
+  max-height: 40vh;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--bg);
