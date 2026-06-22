@@ -22,6 +22,14 @@ Prebuilt installers for **macOS, Windows, and Linux** are available on the [GitH
 
 The builds are **unsigned** (this is a demo); see [First launch (unsigned)](#first-launch-unsigned) below for the bypass steps on each OS.
 
+## Updating
+
+Once installed, the app keeps itself current — no re-downloading from this page. On launch (release builds only — not `tauri dev`, not the Beta build) it checks the GitHub releases feed and, when a newer version has been **published**, shows an **Update & restart** banner in the bar. Clicking it downloads the new build, **verifies its signature** against the public key baked into the app, installs it, and relaunches. This uses Tauri's [updater plugin](https://v2.tauri.app/plugin/updater/) reading [`latest.json`](https://github.com/HoodieYlya13/confluence-spotlight/releases/latest/download/latest.json) (the manifest `tauri-action` attaches to each release).
+
+You can also trigger a check on demand from **Settings → Updates → Check for updates** (the gear in the bar). Unlike the launch check, the manual button runs in any build — it reports "you're on the latest version", surfaces the same banner if one is available, or shows the error if the feed can't be verified (e.g. before the signing pubkey is wired in).
+
+An update is only offered when the latest **published** release's `version` is higher than the running one — a draft or pre-release is invisible to the `releases/latest` feed. See [Shipping an update](#shipping-an-update) for the release-side steps (signing keys, version bump, publish).
+
 ## Prerequisites
 
 - Rust (stable) + the platform toolchain Tauri needs — see https://tauri.app/start/prerequisites/
@@ -98,6 +106,27 @@ bun run tauri build
 ```
 
 Artifacts land under `src-tauri/target/release/bundle/`. A release build signs in via SSO, so make sure `SSO_ISSUER` + `SSO_CLIENT_ID` (and `DEFAULT_SERVER_URL`) are set — bake them in via the `option_env!` constants in `src-tauri/src/mcp.rs`, or override at build time: `SSO_ISSUER=… SSO_CLIENT_ID=… MCP_SERVER_URL=… bun run tauri build`. (`SPOTLIGHT_AUTH_URL` only matters for the demo/dev sign-in.)
+
+> Because the base config sets `bundle.createUpdaterArtifacts: true`, a release `bun run tauri build` (and CI) **must** have the updater signing key available — `TAURI_SIGNING_PRIVATE_KEY` (+ `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) in the environment — or the build fails. The Beta build below turns those artifacts off, so it needs no key. `bun run tauri dev` never signs.
+
+### Shipping an update
+
+The self-updater (see [Updating](#updating)) needs three things wired once, then a small ritual per release.
+
+**One-time setup**
+
+1. Generate an updater key pair (separate from any OS code-signing identity):
+   ```bash
+   bun run tauri signer generate -w ~/.tauri/confluence-spotlight.key
+   ```
+2. Put the **public** key in [`src-tauri/tauri.conf.json`](src-tauri/tauri.conf.json) → `plugins.updater.pubkey`, replacing the `REPLACE_WITH_TAURI_SIGNER_PUBLIC_KEY` placeholder. (Safe to commit — it only verifies signatures.)
+3. Add the **private** key + its password as GitHub repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (the [`release` workflow](.github/workflows/release.yml) passes them to `tauri-action`). Keep the private key out of the repo.
+
+**Per release**
+
+1. Bump the version in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `package.json` (the updater compares the published `version` against the running one).
+2. Tag and push (`git tag vX.Y.Z && git push origin vX.Y.Z`) — `tauri-action` builds every OS, signs the bundles, and uploads them plus `latest.json` to a **draft** release.
+3. **Publish** the draft release on GitHub. Only then does `releases/latest` resolve to it and installed apps start offering the update.
 
 ### Local "Beta" build, side by side with the released app
 

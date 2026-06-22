@@ -62,10 +62,16 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SSO_CLIENT_ID: ${{ vars.SSO_CLIENT_ID || secrets.SSO_CLIENT_ID }}
+          SSO_ISSUER: ${{ vars.SSO_ISSUER }}
+          MCP_SERVER_URL: ${{ vars.MCP_SERVER_URL }}
+          SPOTLIGHT_HOTKEY: ${{ vars.SPOTLIGHT_HOTKEY }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Confluence Spotlight ${{ github.ref_name }}"
-          releaseBody: "Cross-platform builds of Confluence Spotlight. macOS builds are unsigned — see the README for the Gatekeeper bypass."
+          releaseBody: "Cross-platform builds of Confluence Spotlight. macOS and Windows builds are unsigned — see the README for the Gatekeeper bypass."
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

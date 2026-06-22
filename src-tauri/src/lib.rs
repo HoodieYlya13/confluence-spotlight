@@ -18,6 +18,8 @@ use tauri_nspanel::{
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_opener::OpenerExt;
+#[cfg(desktop)]
+use tauri_plugin_updater::UpdaterExt;
 
 #[cfg(target_os = "macos")]
 tauri_panel! {
@@ -86,6 +88,21 @@ struct AuthEvent {
     ok: bool,
     role_label: Option<String>,
     error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct UpdateCheck {
+    available: bool,
+    version: Option<String>,
+    notes: Option<String>,
+}
+
+#[cfg(all(desktop, not(debug_assertions)))]
+#[derive(Clone, Serialize)]
+struct UpdateAvailable {
+    version: String,
+    current_version: String,
+    notes: Option<String>,
 }
 
 fn load_settings(path: &PathBuf) -> Settings {
@@ -572,6 +589,73 @@ fn emit_auth_error(app: &AppHandle, message: &str) {
     );
 }
 
+#[cfg(all(desktop, not(debug_assertions)))]
+async fn check_for_update(app: AppHandle) {
+    let Ok(updater) = app.updater() else {
+        return;
+    };
+    if let Ok(Some(update)) = updater.check().await {
+        let _ = app.emit(
+            "spotlight-update-available",
+            UpdateAvailable {
+                version: update.version.clone(),
+                current_version: update.current_version.clone(),
+                notes: update.body.clone(),
+            },
+        );
+    }
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    #[cfg(not(desktop))]
+    {
+        let _ = &app;
+        return Err("Updates are not supported on this platform.".to_string());
+    }
+    #[cfg(desktop)]
+    {
+        let updater = app.updater().map_err(|error| error.to_string())?;
+        let update = updater
+            .check()
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "No update is available.".to_string())?;
+        update
+            .download_and_install(|_chunk, _total| {}, || {})
+            .await
+            .map_err(|error| error.to_string())?;
+        app.restart();
+    }
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Result<UpdateCheck, String> {
+    #[cfg(desktop)]
+    {
+        let updater = app.updater().map_err(|error| error.to_string())?;
+        match updater.check().await.map_err(|error| error.to_string())? {
+            Some(update) => Ok(UpdateCheck {
+                available: true,
+                version: Some(update.version.clone()),
+                notes: update.body.clone(),
+            }),
+            None => Ok(UpdateCheck {
+                available: false,
+                version: None,
+                notes: None,
+            }),
+        }
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = &app;
+        Err("Updates are not supported on this platform.".to_string())
+    }
+}
+
 fn register_hotkey(app: &AppHandle, accelerator: &str) -> Result<(), String> {
     app.global_shortcut()
         .on_shortcut(accelerator, move |app, _shortcut, event| {
@@ -658,6 +742,9 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
 
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
     builder
         .invoke_handler(tauri::generate_handler![
             ask_question,
@@ -667,6 +754,8 @@ pub fn run() {
             dev_login,
             set_hotkey,
             hide_window,
+            install_update,
+            check_update,
             register_current_hotkey,
             unregister_current_hotkey
         ])
@@ -717,6 +806,12 @@ pub fn run() {
                     handle_auth_url(&auth_handle, &url);
                 }
             });
+
+            #[cfg(all(desktop, not(debug_assertions)))]
+            if !app.config().identifier.ends_with("-beta") {
+                let update_handle = app.handle().clone();
+                tauri::async_runtime::spawn(check_for_update(update_handle));
+            }
 
             Ok(())
         })

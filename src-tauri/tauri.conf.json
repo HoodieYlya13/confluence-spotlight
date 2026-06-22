@@ -38,11 +38,18 @@
       "desktop": {
         "schemes": ["confluence-spotlight"]
       }
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/HoodieYlya13/confluence-spotlight/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlFNkYzODk5Q0Q0ODcyM0QKUldROWNrak5tVGh2bnVrVUhXZFpMNnVidVV3S1JpYWNTeWg4SUFiTi9XbVJ3OUtOa0tUMG5STGoK"
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

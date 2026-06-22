@@ -13,6 +13,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -337,6 +341,54 @@ body {
   display: flex;
   gap: 8px;
   justify-content: center;
+}
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 8px 10px 8px 16px;
+  background: var(--row);
+  border-bottom: 1px solid var(--border);
+}
+
+.update-banner[hidden] {
+  display: none;
+}
+
+.update-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.update-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: var(--accent);
+  color: #06121b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.update-btn:hover {
+  filter: brightness(1.06);
+}
+
+.update-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .settings-header {

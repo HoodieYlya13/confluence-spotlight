@@ -14,6 +14,16 @@ type AuthEvent = {
   role_label: string | null;
   error: string | null;
 };
+type UpdateAvailable = {
+  version: string;
+  current_version: string;
+  notes: string | null;
+};
+type UpdateCheck = {
+  available: boolean;
+  version: string | null;
+  notes: string | null;
+};
 
 function el<T extends Element>(selector: string): T {
   return document.querySelector<T>(selector)!;
@@ -39,6 +49,11 @@ const loginWaiting = el<HTMLDivElement>("#login-waiting");
 const loginError = el<HTMLDivElement>("#login-error");
 const devLogin = el<HTMLDivElement>("#dev-login");
 
+const updateBanner = el<HTMLDivElement>("#update-banner");
+const updateText = el<HTMLSpanElement>("#update-text");
+const updateInstall = el<HTMLButtonElement>("#update-install");
+const updateDismiss = el<HTMLButtonElement>("#update-dismiss");
+
 const settingsBack = el<HTMLButtonElement>("#settings-back");
 const settingsRole = el<HTMLDivElement>("#settings-role");
 const logoutBtn = el<HTMLButtonElement>("#logout-btn");
@@ -46,6 +61,8 @@ const hotkeyRecord = el<HTMLButtonElement>("#hotkey-record");
 const hotkeySave = el<HTMLButtonElement>("#hotkey-save");
 const hotkeyCancel = el<HTMLButtonElement>("#hotkey-cancel");
 const hotkeyError = el<HTMLDivElement>("#hotkey-error");
+const checkUpdateBtn = el<HTMLButtonElement>("#check-update");
+const updateStatus = el<HTMLDivElement>("#update-status");
 
 let pending = false;
 let recording = false;
@@ -58,6 +75,7 @@ function showView(name: ViewName) {
   for (const [key, node] of Object.entries(views)) {
     node.hidden = key !== name;
   }
+  updateDismissButtonVisibility();
 }
 
 function asMessage(error: unknown): string {
@@ -137,6 +155,61 @@ function onAuthEvent(event: AuthEvent) {
   }
 }
 
+let updating = false;
+
+function updateDismissButtonVisibility() {
+  updateDismiss.hidden = activeView === "login";
+}
+
+function showUpdate(info: UpdateAvailable) {
+  updateText.textContent = `Version ${info.version} is available.`;
+  updateBanner.hidden = false;
+  updateDismissButtonVisibility();
+}
+
+async function installUpdate() {
+  if (updating) return;
+  updating = true;
+  updateInstall.disabled = true;
+  updateInstall.textContent = "Downloading…";
+  try {
+    await invoke("install_update");
+  } catch (error) {
+    updating = false;
+    updateInstall.disabled = false;
+    updateInstall.textContent = "Update & restart";
+    updateText.textContent = asMessage(error);
+  }
+}
+
+let checkingUpdate = false;
+
+async function checkForUpdates() {
+  if (checkingUpdate) return;
+  checkingUpdate = true;
+  checkUpdateBtn.disabled = true;
+  updateStatus.hidden = false;
+  updateStatus.textContent = "Checking…";
+  try {
+    const result = await invoke<UpdateCheck>("check_update");
+    if (result.available) {
+      updateStatus.textContent = `Version ${result.version} is available.`;
+      showUpdate({
+        version: result.version ?? "",
+        current_version: "",
+        notes: result.notes,
+      });
+    } else {
+      updateStatus.textContent = "You're on the latest version.";
+    }
+  } catch (error) {
+    updateStatus.textContent = asMessage(error);
+  } finally {
+    checkingUpdate = false;
+    checkUpdateBtn.disabled = false;
+  }
+}
+
 async function submit() {
   const question = input.value.trim();
   if (!question || pending) return;
@@ -164,6 +237,7 @@ function openSettings() {
   settingsRole.textContent = badge.textContent || "—";
   exitRecording();
   hotkeyError.hidden = true;
+  updateStatus.hidden = true;
   showView("settings");
 }
 
@@ -318,6 +392,11 @@ answerEl.addEventListener("click", (event) => {
 
 connectBtn.addEventListener("click", () => void beginLogin());
 
+updateInstall.addEventListener("click", () => void installUpdate());
+updateDismiss.addEventListener("click", () => {
+  updateBanner.hidden = true;
+});
+
 if (import.meta.env.DEV) {
   devLogin.hidden = false;
   devLogin
@@ -340,6 +419,7 @@ hotkeyRecord.addEventListener("click", () => {
 });
 hotkeySave.addEventListener("click", () => void saveHotkey());
 hotkeyCancel.addEventListener("click", () => exitRecording());
+checkUpdateBtn.addEventListener("click", () => void checkForUpdates());
 
 window.addEventListener(
   "keydown",
@@ -370,5 +450,9 @@ document.addEventListener("click", (event) => {
 
 void listen("spotlight-open", () => void onOpen());
 void listen<AuthEvent>("spotlight-auth", (event) => onAuthEvent(event.payload));
+void listen<UpdateAvailable>(
+  "spotlight-update-available",
+  (event) => showUpdate(event.payload),
+);
 
 void onOpen();

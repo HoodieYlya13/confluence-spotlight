@@ -8,5 +8,8 @@
         "schemes": ["confluence-spotlight-beta"]
       }
     }
+  },
+  "bundle": {
+    "createUpdaterArtifacts": false
   }
 }

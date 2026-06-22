@@ -10,6 +10,18 @@
 
   <body>
     <div id="spotlight">
+      <div id="update-banner" class="update-banner" hidden>
+        <span id="update-text" class="update-text"></span>
+        <div class="update-actions">
+          <button id="update-install" class="update-btn" type="button">Update &amp; restart</button>
+          <button id="update-dismiss" class="icon-btn" type="button" title="Dismiss" aria-label="Dismiss">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
       <section id="login-view" hidden>
         <div class="login-card">
           <svg class="login-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -98,6 +110,14 @@
             </div>
             <div class="setting-hint">Click the shortcut, then press a new key combination.</div>
             <div id="hotkey-error" class="form-error" hidden></div>
+          </div>
+
+          <div class="setting-row column">
+            <div class="setting-label">Updates</div>
+            <div class="hotkey-row">
+              <button id="check-update" class="ghost-btn" type="button">Check for updates</button>
+            </div>
+            <div id="update-status" class="setting-hint" hidden></div>
           </div>
         </div>
       </section>
