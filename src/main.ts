@@ -271,7 +271,9 @@ function captureHotkey(event: KeyboardEvent) {
 async function saveHotkey() {
   if (!candidateHotkey) return;
   try {
-    const saved = await invoke<string>("set_hotkey", { hotkey: candidateHotkey });
+    const saved = await invoke<string>("set_hotkey", {
+      hotkey: candidateHotkey,
+    });
     currentHotkey = saved;
     candidateHotkey = null;
     hotkeySave.hidden = true;
@@ -305,7 +307,9 @@ form.addEventListener("submit", (event) => {
 });
 
 answerEl.addEventListener("click", (event) => {
-  const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[data-href]");
+  const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>(
+    "a[data-href]",
+  );
   if (!anchor) return;
   event.preventDefault();
   const href = anchor.getAttribute("data-href");
@@ -316,9 +320,14 @@ connectBtn.addEventListener("click", () => void beginLogin());
 
 if (import.meta.env.DEV) {
   devLogin.hidden = false;
-  devLogin.querySelectorAll<HTMLButtonElement>("button[data-role]").forEach((button) => {
-    button.addEventListener("click", () => void devConnect(button.dataset.role!));
-  });
+  devLogin
+    .querySelectorAll<HTMLButtonElement>("button[data-role]")
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () => void devConnect(button.dataset.role!),
+      );
+    });
 }
 settingsBtn.addEventListener("click", () => openSettings());
 settingsBack.addEventListener("click", () => {

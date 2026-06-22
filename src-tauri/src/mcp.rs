@@ -10,6 +10,8 @@ use sha2::{Digest, Sha256};
 
 const DEFAULT_SERVER_URL: &str = "https://hoodieylya13-mcp-confluence-documentation-rag.hf.space";
 const DEFAULT_AUTH_URL: &str = "https://confluence-bot.hy13dev.com";
+const DEFAULT_SSO_ISSUER: &str = "https://auth.hy13dev.com";
+const SSO_SCOPE: &str = "openid profile email offline_access";
 const DEFAULT_HOTKEY: &str = "CmdOrCtrl+Shift+Space";
 const ASK_TOOL: &str = "ask_accelerator_operations";
 
@@ -29,6 +31,9 @@ pub fn role_label(key: &str) -> Option<&'static str> {
 pub struct McpConfig {
     pub server_url: String,
     pub auth_url: String,
+    pub sso_issuer: String,
+    pub sso_client_id: String,
+    pub use_sso: bool,
     pub default_hotkey: String,
 }
 
@@ -36,10 +41,43 @@ impl McpConfig {
     pub fn from_env() -> Self {
         let _ = dotenvy::dotenv();
 
+        let server_url = non_empty_env("MCP_SERVER_URL")
+            .or_else(|| option_env!("MCP_SERVER_URL").map(|s| s.to_string()))
+            .unwrap_or_else(|| DEFAULT_SERVER_URL.to_string());
+
+        let auth_url = non_empty_env("SPOTLIGHT_AUTH_URL")
+            .or_else(|| option_env!("SPOTLIGHT_AUTH_URL").map(|s| s.to_string()))
+            .unwrap_or_else(|| DEFAULT_AUTH_URL.to_string());
+
+        let sso_issuer = non_empty_env("SSO_ISSUER")
+            .or_else(|| option_env!("SSO_ISSUER").map(|s| s.to_string()))
+            .unwrap_or_else(|| DEFAULT_SSO_ISSUER.to_string());
+
+        let sso_client_id = non_empty_env("SSO_CLIENT_ID")
+            .or_else(|| option_env!("SSO_CLIENT_ID").map(|s| s.to_string()))
+            .unwrap_or_default();
+
+        let use_sso = match non_empty_env("SPOTLIGHT_USE_SSO")
+            .or_else(|| option_env!("SPOTLIGHT_USE_SSO").map(|s| s.to_string()))
+        {
+            Some(value) => matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            ),
+            None => !cfg!(debug_assertions),
+        };
+
+        let default_hotkey = non_empty_env("SPOTLIGHT_HOTKEY")
+            .or_else(|| option_env!("SPOTLIGHT_HOTKEY").map(|s| s.to_string()))
+            .unwrap_or_else(|| DEFAULT_HOTKEY.to_string());
+
         Self {
-            server_url: env_or("MCP_SERVER_URL", DEFAULT_SERVER_URL),
-            auth_url: env_or("SPOTLIGHT_AUTH_URL", DEFAULT_AUTH_URL),
-            default_hotkey: env_or("SPOTLIGHT_HOTKEY", DEFAULT_HOTKEY),
+            server_url,
+            auth_url,
+            sso_issuer,
+            sso_client_id,
+            use_sso,
+            default_hotkey,
         }
     }
 }
@@ -49,10 +87,6 @@ fn non_empty_env(key: &str) -> Option<String> {
         Ok(value) if !value.trim().is_empty() => Some(value),
         _ => None,
     }
-}
-
-fn env_or(key: &str, fallback: &str) -> String {
-    non_empty_env(key).unwrap_or_else(|| fallback.to_string())
 }
 
 fn endpoint(server_url: &str) -> String {
@@ -107,6 +141,100 @@ pub async fn exchange_code(auth_url: &str, code: &str, verifier: &str) -> Result
     }
 
     Ok(response.json::<TokenResponse>().await?)
+}
+
+pub fn sso_authorize_url(
+    issuer: &str,
+    client_id: &str,
+    state: &str,
+    challenge: &str,
+    nonce: &str,
+    redirect_uri: &str,
+) -> String {
+    format!(
+        "{}/api/oidc/authorize?response_type=code&client_id={}&redirect_uri={}&scope={}&code_challenge={}&code_challenge_method=S256&state={}&nonce={}",
+        issuer.trim_end_matches('/'),
+        urlencode(client_id),
+        urlencode(redirect_uri),
+        urlencode(SSO_SCOPE),
+        urlencode(challenge),
+        urlencode(state),
+        urlencode(nonce),
+    )
+}
+
+#[derive(Deserialize)]
+pub struct SsoTokens {
+    pub access_token: String,
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+    #[serde(default)]
+    pub expires_in: Option<i64>,
+}
+
+async fn sso_token_request(issuer: &str, form: &[(&str, &str)]) -> Result<SsoTokens> {
+    let url = format!("{}/api/oidc/token", issuer.trim_end_matches('/'));
+    let response = reqwest::Client::new().post(url).form(form).send().await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow!("Sign-in failed ({status}): {body}"));
+    }
+
+    Ok(response.json::<SsoTokens>().await?)
+}
+
+pub async fn sso_exchange_code(
+    issuer: &str,
+    client_id: &str,
+    code: &str,
+    verifier: &str,
+    redirect_uri: &str,
+) -> Result<SsoTokens> {
+    sso_token_request(
+        issuer,
+        &[
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", redirect_uri),
+            ("code_verifier", verifier),
+            ("client_id", client_id),
+        ],
+    )
+    .await
+}
+
+pub async fn sso_refresh(issuer: &str, client_id: &str, refresh_token: &str) -> Result<SsoTokens> {
+    sso_token_request(
+        issuer,
+        &[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", client_id),
+        ],
+    )
+    .await
+}
+
+pub fn role_from_access_token(token: &str) -> Option<String> {
+    let payload = token.split('.').nth(1)?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let roles: Vec<&str> = claims
+        .get("roles")?
+        .as_array()?
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect();
+
+    if roles.contains(&"ATS_CORE_LEAD") || roles.contains(&"ADMIN") {
+        Some("ATS_CORE_LEAD".to_string())
+    } else if roles.contains(&"JUNIOR_OP") {
+        Some("JUNIOR_OP".to_string())
+    } else {
+        None
+    }
 }
 
 pub async fn ask(server_url: &str, token: &str, question: &str) -> Result<String> {

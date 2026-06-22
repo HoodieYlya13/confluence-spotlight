@@ -45,6 +45,18 @@ body {
   overflow: hidden;
 }
 
+#spotlight > section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#spotlight > section[hidden] {
+  display: none;
+}
+
 #ask-form {
   display: flex;
   align-items: center;
@@ -103,6 +115,8 @@ body {
   border-top: 1px solid var(--border);
   overflow-y: auto;
   padding: 8px 18px 16px;
+  flex: 1;
+  min-height: 0;
 }
 
 #status {
@@ -344,6 +358,9 @@ body {
   flex-direction: column;
   gap: 18px;
   padding: 18px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .setting-row {

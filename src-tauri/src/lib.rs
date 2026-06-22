@@ -7,6 +7,7 @@ pub use mcp::{ask, McpConfig};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "macos")]
 use tauri::ActivationPolicy;
 use tauri::{AppHandle, Emitter, Manager};
@@ -41,11 +42,21 @@ struct Settings {
 struct Auth {
     role: String,
     token: String,
+    refresh_token: Option<String>,
+    expires_at: Option<u64>,
 }
 
 struct PendingAuth {
     state: String,
     verifier: String,
+    redirect_uri: String,
+}
+
+fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 struct AppState {
@@ -128,13 +139,30 @@ fn begin_login(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), 
     let challenge = mcp::pkce_challenge(&verifier);
     let csrf = mcp::random_token();
     let redirect_uri = deep_link_redirect_uri(&app);
-    let url = mcp::authorize_url(&state.config.auth_url, &csrf, &challenge, &redirect_uri);
+
+    let url = if state.config.use_sso {
+        if state.config.sso_client_id.trim().is_empty() {
+            return Err("SSO_CLIENT_ID is not configured.".to_string());
+        }
+        let nonce = mcp::random_token();
+        mcp::sso_authorize_url(
+            &state.config.sso_issuer,
+            &state.config.sso_client_id,
+            &csrf,
+            &challenge,
+            &nonce,
+            &redirect_uri,
+        )
+    } else {
+        mcp::authorize_url(&state.config.auth_url, &csrf, &challenge, &redirect_uri)
+    };
 
     {
         let mut pending = state.pending_auth.lock().unwrap();
         *pending = Some(PendingAuth {
             state: csrf,
             verifier,
+            redirect_uri,
         });
     }
 
@@ -167,7 +195,12 @@ fn dev_login(role: String, state: tauri::State<'_, AppState>) -> Result<SessionV
         }
         match dev_token(&role) {
             Some(token) => {
-                *state.auth.lock().unwrap() = Some(Auth { role, token });
+                *state.auth.lock().unwrap() = Some(Auth {
+                    role,
+                    token,
+                    refresh_token: None,
+                    expires_at: None,
+                });
                 Ok(session_view(state.inner()))
             }
             None => Err(format!(
@@ -217,6 +250,7 @@ fn set_hotkey(
 
 #[tauri::command]
 async fn ask_question(
+    app: AppHandle,
     state: tauri::State<'_, AppState>,
     question: String,
 ) -> Result<AnswerPayload, String> {
@@ -224,6 +258,8 @@ async fn ask_question(
     if trimmed.is_empty() {
         return Err("Type a question first.".to_string());
     }
+
+    refresh_if_needed(&app).await;
 
     let (server_url, token, role_label) = {
         let auth = state.auth.lock().unwrap();
@@ -404,33 +440,125 @@ fn handle_auth_url(app: &AppHandle, url: &url::Url) {
         return;
     }
 
-    let auth_url = state.config.auth_url.clone();
+    let config = state.config.clone();
     let verifier = pending.verifier;
+    let redirect_uri = pending.redirect_uri;
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        match mcp::exchange_code(&auth_url, &code, &verifier).await {
-            Ok(token) => {
-                if let Some(state) = app.try_state::<AppState>() {
-                    *state.auth.lock().unwrap() = Some(Auth {
-                        role: token.role,
-                        token: token.access_token,
-                    });
-                }
-                let role_label = token.role_label;
-                let window_handle = app.clone();
-                let _ = app.run_on_main_thread(move || show_window(&window_handle));
-                let _ = app.emit(
-                    "spotlight-auth",
-                    AuthEvent {
-                        ok: true,
-                        role_label: Some(role_label),
-                        error: None,
-                    },
-                );
+        if config.use_sso {
+            // Production: exchange at the identity provider, derive the role from
+            // the access token, and keep the refresh token for later rotation.
+            match mcp::sso_exchange_code(
+                &config.sso_issuer,
+                &config.sso_client_id,
+                &code,
+                &verifier,
+                &redirect_uri,
+            )
+            .await
+            {
+                Ok(tokens) => match mcp::role_from_access_token(&tokens.access_token) {
+                    Some(role) => {
+                        let role_label = mcp::role_label(&role).unwrap_or(&role).to_string();
+                        let expires_at = expiry_from_now(tokens.expires_in);
+                        if let Some(state) = app.try_state::<AppState>() {
+                            *state.auth.lock().unwrap() = Some(Auth {
+                                role,
+                                token: tokens.access_token,
+                                refresh_token: tokens.refresh_token,
+                                expires_at,
+                            });
+                        }
+                        finish_login(&app, role_label);
+                    }
+                    None => {
+                        emit_auth_error(&app, "Your account has no authorized role for this app.")
+                    }
+                },
+                Err(error) => emit_auth_error(&app, &error.to_string()),
             }
-            Err(error) => emit_auth_error(&app, &error.to_string()),
+        } else {
+            // Dev / demo: exchange at the frontend for a hardcoded role token.
+            match mcp::exchange_code(&config.auth_url, &code, &verifier).await {
+                Ok(token) => {
+                    if let Some(state) = app.try_state::<AppState>() {
+                        *state.auth.lock().unwrap() = Some(Auth {
+                            role: token.role,
+                            token: token.access_token,
+                            refresh_token: None,
+                            expires_at: None,
+                        });
+                    }
+                    finish_login(&app, token.role_label);
+                }
+                Err(error) => emit_auth_error(&app, &error.to_string()),
+            }
         }
     });
+}
+
+/// Converts an `expires_in` (seconds) into an absolute deadline with a 30s skew.
+fn expiry_from_now(expires_in: Option<i64>) -> Option<u64> {
+    expires_in.map(|seconds| now_unix().saturating_add((seconds.max(0) as u64).saturating_sub(30)))
+}
+
+fn finish_login(app: &AppHandle, role_label: String) {
+    let window_handle = app.clone();
+    let _ = app.run_on_main_thread(move || show_window(&window_handle));
+    let _ = app.emit(
+        "spotlight-auth",
+        AuthEvent {
+            ok: true,
+            role_label: Some(role_label),
+            error: None,
+        },
+    );
+}
+
+/// For SSO sessions, rotates the access token via the refresh token when it has
+/// expired. No-op for the dev/demo hardcoded path. Never blocks sign-in — a
+/// failed refresh leaves the (expired) token in place and the call surfaces it.
+async fn refresh_if_needed(app: &AppHandle) {
+    let (config, refresh_token) = {
+        let Some(state) = app.try_state::<AppState>() else {
+            return;
+        };
+        if !state.config.use_sso {
+            return;
+        }
+        let auth = state.auth.lock().unwrap();
+        match auth.as_ref() {
+            Some(auth) => {
+                let expired = auth.expires_at.map(|at| now_unix() >= at).unwrap_or(false);
+                if !expired {
+                    return;
+                }
+                (state.config.clone(), auth.refresh_token.clone())
+            }
+            None => return,
+        }
+    };
+
+    let Some(refresh_token) = refresh_token else {
+        return;
+    };
+
+    if let Ok(tokens) =
+        mcp::sso_refresh(&config.sso_issuer, &config.sso_client_id, &refresh_token).await
+    {
+        if let Some(role) = mcp::role_from_access_token(&tokens.access_token) {
+            let expires_at = expiry_from_now(tokens.expires_in);
+            if let Some(state) = app.try_state::<AppState>() {
+                *state.auth.lock().unwrap() = Some(Auth {
+                    role,
+                    token: tokens.access_token,
+                    // The IdP rotates refresh tokens; fall back to the old one if absent.
+                    refresh_token: tokens.refresh_token.or(Some(refresh_token)),
+                    expires_at,
+                });
+            }
+        }
+    }
 }
 
 fn emit_auth_error(app: &AppHandle, message: &str) {
