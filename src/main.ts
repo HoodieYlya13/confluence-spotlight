@@ -14,6 +14,7 @@ type SessionView = {
   nvim_open_mode: string;
   nvim_leader: string;
   nvim_normal: string;
+  app_version: string;
 };
 type AnswerPayload = { answer: string; role: string };
 type AuthEvent = {
@@ -75,6 +76,7 @@ const settingsRole = el<HTMLDivElement>("#settings-role");
 const logoutBtn = el<HTMLButtonElement>("#logout-btn");
 const checkUpdateBtn = el<HTMLButtonElement>("#check-update");
 const updateStatus = el<HTMLDivElement>("#update-status");
+const appVersion = el<HTMLSpanElement>("#app-version");
 
 type BindingName =
   | "hotkey"
@@ -227,6 +229,7 @@ function applyBindings(session: SessionView) {
   nvimOpenMode = session.nvim_open_mode;
   leaderCode = session.nvim_leader;
   normalCode = session.nvim_normal;
+  appVersion.textContent = `v${session.app_version}`;
 }
 
 async function renderSession(): Promise<SessionView> {

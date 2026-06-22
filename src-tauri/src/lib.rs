@@ -97,6 +97,7 @@ struct SessionView {
     nvim_open_mode: String,
     nvim_leader: String,
     nvim_normal: String,
+    app_version: String,
 }
 
 #[derive(Serialize)]
@@ -206,6 +207,7 @@ fn session_view(state: &AppState) -> SessionView {
         nvim_open_mode,
         nvim_leader,
         nvim_normal,
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
     }
 }
 
