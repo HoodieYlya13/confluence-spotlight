@@ -52,6 +52,7 @@ struct Settings {
     nvim_open_mode: Option<String>,
     nvim_leader: Option<String>,
     nvim_normal: Option<String>,
+    show_on_launch: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -775,6 +776,11 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
             .download_and_install(|_chunk, _total| {}, || {})
             .await
             .map_err(|error| error.to_string())?;
+        if let Some(state) = app.try_state::<AppState>() {
+            let mut settings = state.settings.lock().unwrap();
+            settings.show_on_launch = Some(true);
+            save_settings(&state.settings_path, &settings);
+        }
         restart_app(&app);
     }
     #[allow(unreachable_code)]
@@ -925,6 +931,14 @@ pub fn run() {
                 .map(|dir| dir.join("session.json"))
                 .unwrap_or_else(|_| PathBuf::from("session.json"));
             let mut settings = load_settings(&settings_path);
+            let show_on_launch = settings.show_on_launch.take().unwrap_or(false);
+            if show_on_launch {
+                save_settings(&settings_path, &settings);
+                let handle = app.handle().clone();
+                let _ = app.run_on_main_thread(move || {
+                    show_window(&handle);
+                });
+            }
             if settings.hotkey.is_none() {
                 settings.hotkey = Some(config.default_hotkey.clone());
             }
