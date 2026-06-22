@@ -734,6 +734,28 @@ async fn check_for_update(app: AppHandle) {
     }
 }
 
+fn restart_app(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(current_exe) = std::env::current_exe() {
+            if let Some(contents_dir) = current_exe.parent() {
+                if let Some(app_dir) = contents_dir.parent().and_then(|p| p.parent()) {
+                    if app_dir.extension().map_or(false, |ext| ext == "app") {
+                        let _ = std::process::Command::new("open")
+                            .arg("-n")
+                            .arg(app_dir)
+                            .spawn();
+                        app.exit(0);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    app.restart();
+}
+
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
     #[cfg(not(desktop))]
@@ -753,7 +775,7 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
             .download_and_install(|_chunk, _total| {}, || {})
             .await
             .map_err(|error| error.to_string())?;
-        app.restart();
+        restart_app(&app);
     }
     #[allow(unreachable_code)]
     Ok(())
