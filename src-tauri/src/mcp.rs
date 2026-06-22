@@ -43,23 +43,23 @@ impl McpConfig {
         let _ = dotenvy::dotenv();
 
         let server_url = non_empty_env("MCP_SERVER_URL")
-            .or_else(|| option_env!("MCP_SERVER_URL").map(|s| s.to_string()))
+            .or_else(|| non_empty_str(option_env!("MCP_SERVER_URL")))
             .unwrap_or_else(|| DEFAULT_SERVER_URL.to_string());
 
         let auth_url = non_empty_env("SPOTLIGHT_AUTH_URL")
-            .or_else(|| option_env!("SPOTLIGHT_AUTH_URL").map(|s| s.to_string()))
+            .or_else(|| non_empty_str(option_env!("SPOTLIGHT_AUTH_URL")))
             .unwrap_or_else(|| DEFAULT_AUTH_URL.to_string());
 
         let sso_issuer = non_empty_env("SSO_ISSUER")
-            .or_else(|| option_env!("SSO_ISSUER").map(|s| s.to_string()))
+            .or_else(|| non_empty_str(option_env!("SSO_ISSUER")))
             .unwrap_or_else(|| DEFAULT_SSO_ISSUER.to_string());
 
         let sso_client_id = non_empty_env("SSO_CLIENT_ID")
-            .or_else(|| option_env!("SSO_CLIENT_ID").map(|s| s.to_string()))
+            .or_else(|| non_empty_str(option_env!("SSO_CLIENT_ID")))
             .unwrap_or_else(|| DEFAULT_SSO_CLIENT_ID.to_string());
 
         let use_sso = match non_empty_env("SPOTLIGHT_USE_SSO")
-            .or_else(|| option_env!("SPOTLIGHT_USE_SSO").map(|s| s.to_string()))
+            .or_else(|| non_empty_str(option_env!("SPOTLIGHT_USE_SSO")))
         {
             Some(value) => matches!(
                 value.trim().to_ascii_lowercase().as_str(),
@@ -69,7 +69,7 @@ impl McpConfig {
         };
 
         let default_hotkey = non_empty_env("SPOTLIGHT_HOTKEY")
-            .or_else(|| option_env!("SPOTLIGHT_HOTKEY").map(|s| s.to_string()))
+            .or_else(|| non_empty_str(option_env!("SPOTLIGHT_HOTKEY")))
             .unwrap_or_else(|| DEFAULT_HOTKEY.to_string());
 
         Self {
@@ -88,6 +88,10 @@ fn non_empty_env(key: &str) -> Option<String> {
         Ok(value) if !value.trim().is_empty() => Some(value),
         _ => None,
     }
+}
+
+fn non_empty_str(value: Option<&str>) -> Option<String> {
+    value.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 fn endpoint(server_url: &str) -> String {
