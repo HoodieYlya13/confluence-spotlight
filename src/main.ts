@@ -10,6 +10,10 @@ type SessionView = {
   scroll_keys: string;
   link_keys: string;
   settings_keys: string;
+  nvim_mode: boolean;
+  nvim_open_mode: string;
+  nvim_leader: string;
+  nvim_normal: string;
 };
 type AnswerPayload = { answer: string; role: string };
 type AuthEvent = {
@@ -47,7 +51,13 @@ const statusText = el<HTMLSpanElement>("#status-text");
 const statusHint = el<HTMLSpanElement>("#status-hint");
 const answerEl = el<HTMLDivElement>("#answer");
 const badge = el<HTMLSpanElement>("#role-badge");
+const modeBadge = el<HTMLSpanElement>("#mode-badge");
 const settingsBtn = el<HTMLButtonElement>("#settings-btn");
+
+const nvimToggle = el<HTMLButtonElement>("#nvim-toggle");
+const nvimOptions = el<HTMLDivElement>("#nvim-options");
+const nvimOpenInsert = el<HTMLButtonElement>("#nvim-open-insert");
+const nvimOpenNormal = el<HTMLButtonElement>("#nvim-open-normal");
 
 const connectBtn = el<HTMLButtonElement>("#connect-btn");
 const loginWaiting = el<HTMLDivElement>("#login-waiting");
@@ -66,7 +76,13 @@ const logoutBtn = el<HTMLButtonElement>("#logout-btn");
 const checkUpdateBtn = el<HTMLButtonElement>("#check-update");
 const updateStatus = el<HTMLDivElement>("#update-status");
 
-type BindingName = "hotkey" | "scroll" | "links" | "settings";
+type BindingName =
+  | "hotkey"
+  | "scroll"
+  | "links"
+  | "settings"
+  | "leader"
+  | "normal";
 
 const rows: Record<
   BindingName,
@@ -101,8 +117,28 @@ const rows: Record<
     cancel: el<HTMLButtonElement>("#settingskey-cancel"),
     error: el<HTMLDivElement>("#settingskey-error"),
   },
+  leader: {
+    record: el<HTMLButtonElement>("#leader-record"),
+    save: el<HTMLButtonElement>("#leader-save"),
+    cancel: el<HTMLButtonElement>("#leader-cancel"),
+    error: el<HTMLDivElement>("#leader-error"),
+  },
+  normal: {
+    record: el<HTMLButtonElement>("#normal-record"),
+    save: el<HTMLButtonElement>("#normal-save"),
+    cancel: el<HTMLButtonElement>("#normal-cancel"),
+    error: el<HTMLDivElement>("#normal-error"),
+  },
 };
-const bindingNames: BindingName[] = ["hotkey", "scroll", "links", "settings"];
+const bindingNames: BindingName[] = [
+  "hotkey",
+  "scroll",
+  "links",
+  "settings",
+  "leader",
+  "normal",
+];
+const singleKeyBindings = new Set<BindingName>(["leader", "normal"]);
 
 let pending = false;
 let activeView: ViewName = "login";
@@ -113,6 +149,15 @@ let currentHotkey = "";
 let scrollKeys = "CmdOrCtrl+Down";
 let linkKeys = "CmdOrCtrl+Shift+Down";
 let settingsKeys = "CmdOrCtrl+,";
+
+let nvimEnabled = false;
+let nvimOpenMode = "insert";
+let leaderCode = "Space";
+let normalCode = "Escape";
+let mode: "insert" | "normal" = "insert";
+let spaceHeld = false;
+let lastJ = 0;
+let lastQ = 0;
 
 let recordingTarget: BindingName | null = null;
 let candidateAccel: string | null = null;
@@ -145,6 +190,10 @@ function applyBindings(session: SessionView) {
   scrollKeys = session.scroll_keys;
   linkKeys = session.link_keys;
   settingsKeys = session.settings_keys;
+  nvimEnabled = session.nvim_mode;
+  nvimOpenMode = session.nvim_open_mode;
+  leaderCode = session.nvim_leader;
+  normalCode = session.nvim_normal;
 }
 
 async function renderSession(): Promise<SessionView> {
@@ -153,6 +202,7 @@ async function renderSession(): Promise<SessionView> {
   if (session.role) {
     badge.textContent = session.role_label ?? session.role;
     showView("search");
+    updateModeBadge();
   } else {
     resetLogin();
     showView("login");
@@ -414,40 +464,24 @@ function scrollElementToTop(element: HTMLElement) {
 let linkMode = false;
 let linkBuffer = "";
 let linkPaged = false;
+let numbered: HTMLElement[] = [];
 
-function answerLinks(): HTMLAnchorElement[] {
-  return Array.from(answerEl.querySelectorAll<HTMLAnchorElement>("a[data-href]"));
-}
-
-function decorateLinks() {
-  const links = answerLinks();
-  links.forEach((anchor, index) => {
-    anchor.dataset.linknum = String(index);
-    const prev = anchor.previousElementSibling;
-    let badgeEl: HTMLElement;
-    if (prev && prev.classList.contains("link-num")) {
-      badgeEl = prev as HTMLElement;
-    } else {
-      badgeEl = document.createElement("span");
-      badgeEl.className = "link-num";
-      anchor.parentNode?.insertBefore(badgeEl, anchor);
-    }
-    badgeEl.textContent = String(index);
-  });
-  applyLinkFilter();
+function computeTargets(): HTMLElement[] {
+  if (activeView === "settings") {
+    return Array.from(
+      views.settings.querySelectorAll<HTMLElement>("button"),
+    ).filter((b) => b.id !== "settings-back" && b.offsetParent !== null);
+  }
+  return Array.from(answerEl.querySelectorAll<HTMLElement>("a[data-href]"));
 }
 
 function applyLinkFilter() {
-  for (const anchor of answerLinks()) {
-    const num = anchor.dataset.linknum ?? "";
+  numbered.forEach((node) => {
+    const num = node.dataset.linknum ?? "";
     const matches = linkBuffer === "" || num.startsWith(linkBuffer);
-    anchor.classList.toggle("link-hide", !matches);
-    const badgeEl = anchor.previousElementSibling;
-    if (badgeEl && badgeEl.classList.contains("link-num")) {
-      badgeEl.classList.toggle("link-hide", !matches);
-      badgeEl.classList.toggle("active", linkBuffer !== "" && matches);
-    }
-  }
+    node.classList.toggle("link-hide", !matches);
+    node.classList.toggle("num-active", linkBuffer !== "" && matches);
+  });
 }
 
 function enterLinkMode() {
@@ -455,7 +489,11 @@ function enterLinkMode() {
   linkMode = true;
   linkBuffer = "";
   linkPaged = false;
-  decorateLinks();
+  numbered = computeTargets();
+  numbered.forEach((node, index) => {
+    node.dataset.linknum = String(index);
+  });
+  applyLinkFilter();
 }
 
 function exitLinkMode() {
@@ -463,40 +501,45 @@ function exitLinkMode() {
   linkMode = false;
   linkBuffer = "";
   linkPaged = false;
-  answerEl.querySelectorAll(".link-num").forEach((node) => node.remove());
-  for (const anchor of answerLinks()) {
-    anchor.classList.remove("link-hide");
-    delete anchor.dataset.linknum;
-  }
+  numbered.forEach((node) => {
+    node.classList.remove("link-hide", "num-active");
+    delete node.dataset.linknum;
+  });
+  numbered = [];
 }
 
 function candidatesFor(buffer: string): number[] {
-  const count = answerLinks().length;
   const result: number[] = [];
-  for (let i = 0; i < count; i += 1) {
+  for (let i = 0; i < numbered.length; i += 1) {
     if (String(i).startsWith(buffer)) result.push(i);
   }
   return result;
 }
 
-function openLinkByIndex(index: number) {
-  const anchor = answerLinks().find(
-    (item) => item.dataset.linknum === String(index),
-  );
-  const href = anchor?.getAttribute("data-href");
-  exitLinkMode();
+function activateTarget(node: HTMLElement) {
+  const href = node.getAttribute("data-href");
   if (href) void openUrl(href);
+  else node.click();
+}
+
+function openLinkByIndex(index: number) {
+  const node = numbered[index];
+  exitLinkMode();
+  if (node) activateTarget(node);
 }
 
 function pageToLinks(direction: 1 | -1) {
   enterLinkMode();
-  const links = answerLinks();
-  if (!links.length) {
+  if (activeView === "settings") {
+    scrollContainer(settingsBody, direction);
+    return;
+  }
+  if (!numbered.length) {
     scrollAnswer(direction);
     return;
   }
   if (direction === 1 && !linkPaged) {
-    scrollElementToTop(links[0]);
+    scrollElementToTop(numbered[0]);
     linkPaged = true;
   } else {
     scrollAnswer(direction);
@@ -548,14 +591,326 @@ function isModifierCode(code: string): boolean {
   return /^(Shift|Meta|Control|Alt)(Left|Right)$/.test(code);
 }
 
+function linkChordEngaged(event: KeyboardEvent): boolean {
+  if (modsMatch(parseMods(linkKeys), event)) return true;
+  return nvimEnabled && mode === "normal" && spaceHeld && event.shiftKey;
+}
+
+function linkChordHeldNow(event: KeyboardEvent): boolean {
+  if (modsHeld(parseMods(linkKeys), event)) return true;
+  return nvimEnabled && mode === "normal" && spaceHeld && event.shiftKey;
+}
+
 function maybeStartChordTimer(event: KeyboardEvent) {
-  if (activeView !== "search" || recordingTarget) return;
-  if (chordTimer !== null || linkPaged) return;
-  if (!modsMatch(parseMods(linkKeys), event)) return;
+  if (activeView === "login" || recordingTarget) return;
+  if (chordTimer !== null || linkMode) return;
+  if (!linkChordEngaged(event)) return;
   chordTimer = window.setTimeout(() => {
     chordTimer = null;
-    if (activeView === "search" && !recordingTarget) pageToLinks(1);
+    if (activeView === "login" || recordingTarget) return;
+    if (activeView === "settings") enterLinkMode();
+    else pageToLinks(1);
   }, 300);
+}
+
+function setMode(next: "insert" | "normal") {
+  mode = next;
+  updateModeBadge();
+}
+
+function updateModeBadge() {
+  if (!nvimEnabled) {
+    modeBadge.hidden = true;
+    modeBadge.classList.remove("normal", "insert");
+    return;
+  }
+  modeBadge.hidden = false;
+  modeBadge.textContent = mode === "normal" ? "NORMAL" : "INSERT";
+  modeBadge.classList.toggle("normal", mode === "normal");
+  modeBadge.classList.toggle("insert", mode === "insert");
+}
+
+function setCaret(pos: number) {
+  const clamped = Math.max(0, Math.min(pos, input.value.length));
+  input.focus();
+  input.setSelectionRange(clamped, clamped);
+}
+
+function enterInsert(pos: number) {
+  setMode("insert");
+  setCaret(pos);
+}
+
+function enterNormal() {
+  setMode("normal");
+  input.focus();
+}
+
+function deleteCharBeforeCaret() {
+  const p = input.selectionStart ?? 0;
+  if (p > 0) {
+    input.value = input.value.slice(0, p - 1) + input.value.slice(p);
+    input.setSelectionRange(p - 1, p - 1);
+  }
+}
+
+function deleteCharAtCaret() {
+  const p = input.selectionStart ?? 0;
+  if (p < input.value.length) {
+    input.value = input.value.slice(0, p) + input.value.slice(p + 1);
+    input.setSelectionRange(p, p);
+  }
+}
+
+function backToConversation() {
+  disarmLogout();
+  showView("search");
+  focusInput();
+}
+
+function toggleSettings() {
+  if (activeView === "settings") backToConversation();
+  else openSettings();
+}
+
+function isEnterNormalKey(event: KeyboardEvent): boolean {
+  if (event.ctrlKey && (event.code === "BracketLeft" || event.code === "KeyC")) {
+    return true;
+  }
+  if (!event.metaKey && !event.ctrlKey && !event.altKey) {
+    return event.code === "Escape" || event.code === normalCode;
+  }
+  return false;
+}
+
+function handleNvimInsert(event: KeyboardEvent): boolean {
+  if (isEnterNormalKey(event)) {
+    event.preventDefault();
+    enterNormal();
+    return true;
+  }
+  if (
+    event.code === "KeyJ" &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.shiftKey
+  ) {
+    const now = Date.now();
+    if (now - lastJ < 250) {
+      event.preventDefault();
+      deleteCharBeforeCaret();
+      lastJ = 0;
+      enterNormal();
+      return true;
+    }
+    lastJ = now;
+    return false;
+  }
+  return false;
+}
+
+function handleNvimNormal(event: KeyboardEvent): boolean {
+  if (event.code === "Space") {
+    event.preventDefault();
+    spaceHeld = true;
+    if (event.shiftKey) maybeStartChordTimer(event);
+    return true;
+  }
+
+  if (spaceHeld) {
+    if (event.shiftKey) {
+      if (activeView === "settings" && event.code === "KeyQ") {
+        if (logoutArmed) {
+          disarmLogout();
+          void doLogout();
+        } else {
+          armLogout();
+        }
+        return true;
+      }
+      const digit = digitOf(event);
+      if (digit !== null) {
+        pressLinkDigit(digit);
+        return true;
+      }
+      if (event.code === "KeyJ" || event.code === "ArrowDown") {
+        pageToLinks(1);
+        return true;
+      }
+      if (event.code === "KeyK" || event.code === "ArrowUp") {
+        pageToLinks(-1);
+        return true;
+      }
+      maybeStartChordTimer(event);
+      return true;
+    }
+    if (event.code === "Comma") {
+      event.preventDefault();
+      toggleSettings();
+      return true;
+    }
+    if (activeView === "settings") {
+      if (event.code === "KeyJ") {
+        event.preventDefault();
+        scrollContainer(settingsBody, 1);
+        return true;
+      }
+      if (event.code === "KeyK") {
+        event.preventDefault();
+        scrollContainer(settingsBody, -1);
+        return true;
+      }
+    } else {
+      if (event.code === "KeyJ") {
+        event.preventDefault();
+        scrollAnswer(1);
+        return true;
+      }
+      if (event.code === "KeyK") {
+        event.preventDefault();
+        scrollAnswer(-1);
+        return true;
+      }
+      if (event.code === "KeyQ") {
+        event.preventDefault();
+        void invoke("hide_window");
+        return true;
+      }
+    }
+    event.preventDefault();
+    return true;
+  }
+
+  if (event.metaKey || event.ctrlKey || event.altKey) return false;
+
+  if (activeView === "settings") {
+    if (event.code === "KeyH" || event.code === "Escape") {
+      event.preventDefault();
+      backToConversation();
+      return true;
+    }
+    if (event.code === "KeyJ") {
+      event.preventDefault();
+      scrollContainer(settingsBody, 1);
+      return true;
+    }
+    if (event.code === "KeyK") {
+      event.preventDefault();
+      scrollContainer(settingsBody, -1);
+      return true;
+    }
+    event.preventDefault();
+    return true;
+  }
+
+  const caret = input.selectionStart ?? input.value.length;
+  switch (event.code) {
+    case "KeyI":
+      event.preventDefault();
+      enterInsert(event.shiftKey ? 0 : caret);
+      return true;
+    case "KeyA":
+      event.preventDefault();
+      enterInsert(event.shiftKey ? input.value.length : caret + 1);
+      return true;
+    case "KeyH":
+      event.preventDefault();
+      setCaret(caret - 1);
+      return true;
+    case "KeyL":
+      event.preventDefault();
+      setCaret(caret + 1);
+      return true;
+    case "KeyK":
+      event.preventDefault();
+      historyPrev();
+      return true;
+    case "KeyJ":
+      event.preventDefault();
+      historyNext();
+      return true;
+    case "Digit0":
+      event.preventDefault();
+      setCaret(0);
+      return true;
+    case "Digit4":
+      if (event.shiftKey) {
+        event.preventDefault();
+        setCaret(input.value.length);
+        return true;
+      }
+      event.preventDefault();
+      return true;
+    case "KeyX":
+      event.preventDefault();
+      deleteCharAtCaret();
+      return true;
+    case "KeyQ":
+      event.preventDefault();
+      if (Date.now() - lastQ < 250) {
+        lastQ = 0;
+        void invoke("hide_window");
+      } else {
+        lastQ = Date.now();
+      }
+      return true;
+    case "Escape":
+      event.preventDefault();
+      if (linkMode) exitLinkMode();
+      return true;
+    case "Enter":
+    case "NumpadEnter":
+      return false;
+    default:
+      if (event.key.length === 1) {
+        event.preventDefault();
+        return true;
+      }
+      return false;
+  }
+}
+
+function handleNvim(event: KeyboardEvent): boolean {
+  if (!nvimEnabled || activeView === "login") return false;
+  if (mode === "insert") return handleNvimInsert(event);
+  return handleNvimNormal(event);
+}
+
+function refreshNvimUi() {
+  nvimToggle.textContent = nvimEnabled ? "On" : "Off";
+  nvimToggle.classList.toggle("active", nvimEnabled);
+  nvimOptions.hidden = !nvimEnabled;
+  nvimOpenInsert.classList.toggle("active", nvimOpenMode === "insert");
+  nvimOpenNormal.classList.toggle("active", nvimOpenMode === "normal");
+  setRowDisplay("leader");
+  setRowDisplay("normal");
+  updateModeBadge();
+}
+
+async function toggleNvim() {
+  try {
+    const session = await invoke<SessionView>("set_nvim_mode", {
+      enabled: !nvimEnabled,
+    });
+    applyBindings(session);
+    setMode(nvimEnabled && nvimOpenMode === "normal" ? "normal" : "insert");
+    refreshNvimUi();
+  } catch (error) {
+    console.error("Failed to toggle Neovim mode:", error);
+  }
+}
+
+async function setOpenMode(value: string) {
+  try {
+    const session = await invoke<SessionView>("set_nvim_open_mode", {
+      mode: value,
+    });
+    applyBindings(session);
+    refreshNvimUi();
+  } catch (error) {
+    console.error("Failed to set open mode:", error);
+  }
 }
 
 async function submit() {
@@ -565,6 +920,7 @@ async function submit() {
   pushHistory(question);
   input.value = "";
   exitLinkMode();
+  if (nvimEnabled) setMode("normal");
 
   pending = true;
   form.classList.add("pending");
@@ -618,11 +974,34 @@ function accelOf(name: BindingName): string {
   if (name === "hotkey") return currentHotkey;
   if (name === "scroll") return scrollKeys;
   if (name === "links") return linkKeys;
-  return settingsKeys;
+  if (name === "settings") return settingsKeys;
+  if (name === "leader") return leaderCode;
+  return normalCode;
+}
+
+function codeLabel(code: string): string {
+  if (code === "Space") return "Space";
+  if (code === "Escape") return "Esc";
+  if (code === "Comma") return ",";
+  if (code === "Enter") return "Enter";
+  if (code === "Tab") return "Tab";
+  const letter = /^Key([A-Z])$/.exec(code);
+  if (letter) return letter[1].toLowerCase();
+  const digit = /^Digit([0-9])$/.exec(code);
+  if (digit) return digit[1];
+  const arrows: Record<string, string> = {
+    ArrowUp: "↑",
+    ArrowDown: "↓",
+    ArrowLeft: "←",
+    ArrowRight: "→",
+  };
+  return arrows[code] ?? code;
 }
 
 function setRowDisplay(name: BindingName) {
-  rows[name].record.textContent = formatHotkey(accelOf(name));
+  rows[name].record.textContent = singleKeyBindings.has(name)
+    ? codeLabel(accelOf(name))
+    : formatHotkey(accelOf(name));
 }
 
 async function enterRecording(name: BindingName) {
@@ -680,18 +1059,29 @@ function captureHotkey(event: KeyboardEvent) {
   event.preventDefault();
   event.stopPropagation();
 
-  if (event.key === "Escape") {
+  if (!recordingTarget) return;
+  const single = singleKeyBindings.has(recordingTarget);
+
+  if (!single && event.key === "Escape") {
     void exitRecording();
     return;
   }
 
-  const accelerator = toAccelerator(event);
-  if (!accelerator || !recordingTarget) return;
+  let accelerator: string | null;
+  if (single) {
+    if (isModifierCode(event.code)) return;
+    accelerator = event.code;
+  } else {
+    accelerator = toAccelerator(event);
+  }
+  if (!accelerator) return;
 
   candidateAccel = accelerator;
   const row = rows[recordingTarget];
   row.record.classList.remove("recording");
-  row.record.textContent = formatHotkey(accelerator);
+  row.record.textContent = single
+    ? codeLabel(accelerator)
+    : formatHotkey(accelerator);
   row.save.hidden = false;
   row.cancel.hidden = false;
 }
@@ -734,6 +1124,7 @@ function openSettings() {
     rows[name].cancel.hidden = true;
   }
   updateStatus.hidden = true;
+  refreshNvimUi();
   showView("settings");
 }
 
@@ -763,8 +1154,10 @@ async function onOpen() {
   void exitRecording();
   const session = await renderSession();
   if (session.role) {
+    setMode(nvimEnabled && nvimOpenMode === "normal" ? "normal" : "insert");
     focusInput();
   } else {
+    updateModeBadge();
     window.requestAnimationFrame(() => connectBtn.focus());
   }
 }
@@ -800,6 +1193,22 @@ function handleInAppShortcut(event: KeyboardEvent): boolean {
         armLogout();
       }
       return true;
+    }
+    if (modsMatch(parseMods(linkKeys), event)) {
+      const digit = digitOf(event);
+      if (digit !== null) {
+        pressLinkDigit(digit);
+        return true;
+      }
+      const token = keyToken(event.code);
+      if (token === "Down") {
+        pageToLinks(1);
+        return true;
+      }
+      if (token === "Up") {
+        pageToLinks(-1);
+        return true;
+      }
     }
     if (modsMatch(parseMods(scrollKeys), event)) {
       const token = keyToken(event.code);
@@ -909,6 +1318,9 @@ settingsBack.addEventListener("click", () => {
 });
 logoutBtn.addEventListener("click", () => void doLogout());
 checkUpdateBtn.addEventListener("click", () => void checkForUpdates());
+nvimToggle.addEventListener("click", () => void toggleNvim());
+nvimOpenInsert.addEventListener("click", () => void setOpenMode("insert"));
+nvimOpenNormal.addEventListener("click", () => void setOpenMode("normal"));
 
 for (const name of bindingNames) {
   const row = rows[name];
@@ -930,6 +1342,10 @@ window.addEventListener(
     if (pending && event.ctrlKey && event.code === "KeyC") {
       event.preventDefault();
       void invoke("cancel_ask");
+      return;
+    }
+
+    if (handleNvim(event)) {
       return;
     }
 
@@ -965,7 +1381,8 @@ window.addEventListener(
 window.addEventListener(
   "keyup",
   (event) => {
-    if (modsHeld(parseMods(linkKeys), event)) return;
+    if (event.code === "Space") spaceHeld = false;
+    if (linkChordHeldNow(event)) return;
     clearChordTimer();
     if (linkMode) {
       commitLinkBuffer();

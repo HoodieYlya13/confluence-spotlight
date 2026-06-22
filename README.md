@@ -81,7 +81,28 @@ The bar is keyboard-first — defaults below, and the modifier-based ones are re
 | `Ctrl + C` while a request runs | Cancel the in-flight question (shown as `⌃C to cancel` beside the status) |
 | `Esc` | Leave link mode, then dismiss the window |
 
-The search box keeps the caret while you click around the bar, so you can start typing the next question at any moment. Source links stay on a single line (truncated with an ellipsis) rather than wrapping.
+The search box keeps the caret while you click around the bar, so you can start typing the next question at any moment. Source links stay on a single line (truncated with an ellipsis) rather than wrapping. Holding `⌘/Ctrl+Shift` over the **Settings** screen numbers its buttons too (`Log out` = 0 … `Check for updates`), so any control is reachable by number — same as the links.
+
+### Neovim mode
+
+Settings → **Neovim mode** turns on a modal (Normal/Insert) keymap layered over the bar; it's off by default and the base `⌘/Ctrl` shortcuts keep working either way. A `NORMAL`/`INSERT` badge shows the mode, and **Open in** chooses which mode each summon starts in (Insert by default). The **leader** key (default `Space`) and the **Enter-Normal** key (default `Esc`) are remappable in Settings; the motions are fixed vim conventions.
+
+| Keys | Action |
+|---|---|
+| `Esc` / `Ctrl+C` / `Ctrl+[` / `jj` | Enter Normal mode (also after every `Enter`) |
+| `i` / `a` / `I` / `A` | Enter Insert at caret / after / line start / line end |
+| `h` / `l` | Move the caret left / right |
+| `k` / `j` | Step history older / newer |
+| `0` / `$` | Caret to line start / end |
+| `x` | Delete the character under the caret |
+| Hold `Space` + `Shift` | Same as `⌘/Ctrl+Shift`: number the links (or Settings buttons); digits open, release commits |
+| `Space` + `j` / `k` | Scroll the answer |
+| `Space` + `,` | Toggle Settings |
+| `Space` + `q` or `qq` | Close the window |
+| In Settings: `h` / `Esc` | Back to the conversation (`j` / `k` scroll) |
+| In Settings: `Space` + `Shift` + `Q` ×2 | Log out (confirm within ~2.5 s) |
+
+(`jj` to leave Insert means you can't quickly type a literal "jj" — the usual vim trade-off.)
 
 The **gear** in the bar opens **Settings**, where you can:
 

@@ -38,6 +38,9 @@ tauri_panel! {
 const DEFAULT_SCROLL_KEYS: &str = "CmdOrCtrl+Down";
 const DEFAULT_LINK_KEYS: &str = "CmdOrCtrl+Shift+Down";
 const DEFAULT_SETTINGS_KEYS: &str = "CmdOrCtrl+,";
+const DEFAULT_NVIM_OPEN_MODE: &str = "insert";
+const DEFAULT_NVIM_LEADER: &str = "Space";
+const DEFAULT_NVIM_NORMAL: &str = "Escape";
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct Settings {
@@ -45,6 +48,10 @@ struct Settings {
     scroll_keys: Option<String>,
     link_keys: Option<String>,
     settings_keys: Option<String>,
+    nvim_mode: Option<bool>,
+    nvim_open_mode: Option<String>,
+    nvim_leader: Option<String>,
+    nvim_normal: Option<String>,
 }
 
 #[derive(Clone)]
@@ -86,6 +93,10 @@ struct SessionView {
     scroll_keys: String,
     link_keys: String,
     settings_keys: String,
+    nvim_mode: bool,
+    nvim_open_mode: String,
+    nvim_leader: String,
+    nvim_normal: String,
 }
 
 #[derive(Serialize)]
@@ -159,6 +170,24 @@ fn session_view(state: &AppState) -> SessionView {
                 .unwrap_or_else(|| DEFAULT_SETTINGS_KEYS.to_string()),
         )
     };
+    let (nvim_mode, nvim_open_mode, nvim_leader, nvim_normal) = {
+        let settings = state.settings.lock().unwrap();
+        (
+            settings.nvim_mode.unwrap_or(false),
+            settings
+                .nvim_open_mode
+                .clone()
+                .unwrap_or_else(|| DEFAULT_NVIM_OPEN_MODE.to_string()),
+            settings
+                .nvim_leader
+                .clone()
+                .unwrap_or_else(|| DEFAULT_NVIM_LEADER.to_string()),
+            settings
+                .nvim_normal
+                .clone()
+                .unwrap_or_else(|| DEFAULT_NVIM_NORMAL.to_string()),
+        )
+    };
     let auth = state.auth.lock().unwrap();
     let role = auth.as_ref().map(|auth| auth.role.clone());
     let role_label = role
@@ -173,6 +202,10 @@ fn session_view(state: &AppState) -> SessionView {
         scroll_keys,
         link_keys,
         settings_keys,
+        nvim_mode,
+        nvim_open_mode,
+        nvim_leader,
+        nvim_normal,
     }
 }
 
@@ -313,11 +346,39 @@ fn set_binding(
             "scroll" => settings.scroll_keys = Some(trimmed),
             "links" => settings.link_keys = Some(trimmed),
             "settings" => settings.settings_keys = Some(trimmed),
+            "leader" => settings.nvim_leader = Some(trimmed),
+            "normal" => settings.nvim_normal = Some(trimmed),
             _ => return Err(format!("Unknown binding '{name}'.")),
         }
         save_settings(&state.settings_path, &settings);
     }
 
+    Ok(session_view(state.inner()))
+}
+
+#[tauri::command]
+fn set_nvim_mode(state: tauri::State<'_, AppState>, enabled: bool) -> Result<SessionView, String> {
+    {
+        let mut settings = state.settings.lock().unwrap();
+        settings.nvim_mode = Some(enabled);
+        save_settings(&state.settings_path, &settings);
+    }
+    Ok(session_view(state.inner()))
+}
+
+#[tauri::command]
+fn set_nvim_open_mode(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+) -> Result<SessionView, String> {
+    if mode != "insert" && mode != "normal" {
+        return Err(format!("Unknown open mode '{mode}'."));
+    }
+    {
+        let mut settings = state.settings.lock().unwrap();
+        settings.nvim_open_mode = Some(mode);
+        save_settings(&state.settings_path, &settings);
+    }
     Ok(session_view(state.inner()))
 }
 
@@ -822,6 +883,8 @@ pub fn run() {
             dev_login,
             set_hotkey,
             set_binding,
+            set_nvim_mode,
+            set_nvim_open_mode,
             hide_window,
             install_update,
             check_update,
