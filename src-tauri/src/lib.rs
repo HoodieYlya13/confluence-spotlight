@@ -52,7 +52,6 @@ struct Settings {
     nvim_open_mode: Option<String>,
     nvim_leader: Option<String>,
     nvim_normal: Option<String>,
-    show_on_launch: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -741,7 +740,7 @@ fn restart_app(app: &AppHandle) {
         if let Ok(current_exe) = std::env::current_exe() {
             if let Some(contents_dir) = current_exe.parent() {
                 if let Some(app_dir) = contents_dir.parent().and_then(|p| p.parent()) {
-                    if app_dir.extension().map_or(false, |ext| ext == "app") {
+                    if app_dir.extension().is_some_and(|ext| ext == "app") {
                         let _ = std::process::Command::new("open")
                             .arg("-n")
                             .arg(app_dir)
@@ -776,11 +775,6 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
             .download_and_install(|_chunk, _total| {}, || {})
             .await
             .map_err(|error| error.to_string())?;
-        if let Some(state) = app.try_state::<AppState>() {
-            let mut settings = state.settings.lock().unwrap();
-            settings.show_on_launch = Some(true);
-            save_settings(&state.settings_path, &settings);
-        }
         restart_app(&app);
     }
     #[allow(unreachable_code)]
@@ -931,9 +925,7 @@ pub fn run() {
                 .map(|dir| dir.join("session.json"))
                 .unwrap_or_else(|_| PathBuf::from("session.json"));
             let mut settings = load_settings(&settings_path);
-            let show_on_launch = settings.show_on_launch.take().unwrap_or(false);
-            if show_on_launch {
-                save_settings(&settings_path, &settings);
+            {
                 let handle = app.handle().clone();
                 let _ = app.run_on_main_thread(move || {
                     show_window(&handle);

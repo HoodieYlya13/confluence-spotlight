@@ -57,7 +57,7 @@ bun install
 bun run tauri dev
 ```
 
-The window starts hidden. Press the hotkey (default **Cmd+Shift+Space**) to summon it.
+The window opens automatically every time the app launches — after boot, a manual open, a quit-and-reopen, or an update restart. Once you dismiss it (**Esc** or click away), press the hotkey (default **Cmd+Shift+Space**) to summon it again.
 
 On launch it shows a **connect** screen. **Connect** opens your browser to sign in:
 
