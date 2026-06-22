@@ -72,9 +72,9 @@ The bar is keyboard-first — defaults below, and the modifier-based ones are re
 |---|---|
 | `↑` / `↓` | Step through your questions from the last 24 h (in-memory) and tweak them |
 | `⌘/Ctrl + ↑/↓` | Scroll the answer (also scrolls the Settings screen) |
-| Hold `⌘/Ctrl + Shift` | After ~300 ms (so it doesn't clash with `⌘/Ctrl+Shift+Space`), scroll to the source links — first link kept visible — and number them. Release removes the numbers; hold again to re-scroll |
+| Hold `⌘/Ctrl + Shift` | After ~300 ms (so it doesn't clash with `⌘/Ctrl+Shift+Space`), scroll to the source links — first link kept visible — and number them. The numbers stay while `⌘/Ctrl` is held (Shift optional); releasing `⌘/Ctrl` removes them; hold again to re-scroll |
 | `⌘/Ctrl + Shift + ↓` / `↑` | Page through link overflow (the `↓` form also jumps to the links immediately, no wait) |
-| `⌘/Ctrl + Shift + <digit>` | Open a numbered link — type more digits for ≥ 10 links; release the chord to open the shorter number |
+| `⌘/Ctrl + (Shift) + <digit>` | Open a numbered link — type more digits for ≥ 10 links; release `⌘/Ctrl` to open the shorter number. Shift is optional once numbers show, so for `3/4/5/6` release Shift (macOS reserves `⌘⇧3/4/5/6` for screenshots) |
 | `⌘/Ctrl + ,` | Open / close Settings |
 | In Settings: `Esc` / `←` / `⌘/Ctrl + ,` | Back to the conversation |
 | In Settings: `Shift + Q` ×2 | Log out (press twice within ~2.5 s to confirm) |
@@ -95,7 +95,7 @@ Settings → **Neovim mode** turns on a modal (Normal/Insert) keymap layered ove
 | `k` / `j` | Step history older / newer |
 | `0` / `$` | Caret to line start / end |
 | `x` | Delete the character under the caret |
-| Hold `Space` + `Shift` | Same as `⌘/Ctrl+Shift`: number the links (or Settings buttons); digits open, release commits |
+| Hold `Space` + `Shift` | Same as `⌘/Ctrl+Shift`: number the links (or Settings buttons). Once numbered, `Space + <digit>` opens (Shift optional); releasing `Space` commits |
 | `Space` + `j` / `k` | Scroll the answer |
 | `Space` + `,` | Toggle Settings |
 | `Space` + `q` or `qq` | Close the window |

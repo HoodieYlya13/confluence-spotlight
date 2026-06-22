@@ -142,8 +142,7 @@ const singleKeyBindings = new Set<BindingName>(["leader", "normal"]);
 
 let pending = false;
 let activeView: ViewName = "login";
-let logoutArmed = false;
-let logoutTimer: number | null = null;
+
 
 let currentHotkey = "";
 let scrollKeys = "CmdOrCtrl+Down";
@@ -158,14 +157,48 @@ let mode: "insert" | "normal" = "insert";
 let spaceHeld = false;
 let lastJ = 0;
 let lastQ = 0;
+let lastEscapeTime = 0;
 
 let recordingTarget: BindingName | null = null;
 let candidateAccel: string | null = null;
+document.querySelectorAll("button").forEach((btn) => {
+  btn.setAttribute("tabindex", "-1");
+});
+
+document.addEventListener("focus", (event) => {
+  if ((event.target as HTMLElement).tagName === "BUTTON") {
+    (event.target as HTMLElement).blur();
+  }
+}, true);
+async function silentCheckForUpdates() {
+  try {
+    const result = await invoke<UpdateCheck>("check_update");
+    if (result.available) {
+      showUpdate({
+        version: result.version ?? "",
+        current_version: "",
+        notes: result.notes,
+      });
+    }
+  } catch (error) {
+    console.error("Silent update check failed:", error);
+  }
+}
 
 function showView(name: ViewName) {
   activeView = name;
   for (const [key, node] of Object.entries(views)) {
     node.hidden = key !== name;
+  }
+  updateDismiss.hidden = (name === "login");
+  if (name === "settings" || name === "login") {
+    input.blur();
+    if (nvimEnabled) {
+      setMode("normal");
+    }
+    if (name === "login") {
+      void silentCheckForUpdates();
+    }
   }
 }
 
@@ -311,12 +344,19 @@ async function checkForUpdates() {
 const DAY_MS = 24 * 60 * 60 * 1000;
 type HistoryEntry = { question: string; at: number };
 let history: HistoryEntry[] = [];
-let historyIndex = -1;
-let historyDraft = "";
+let bottomDraft = "";
+let forks: string[] = [];
+let navCursor = 0;
 
 function pruneHistory() {
   const cutoff = Date.now() - DAY_MS;
   history = history.filter((entry) => entry.at >= cutoff);
+}
+
+function resetNavigation() {
+  bottomDraft = "";
+  forks = [];
+  navCursor = 0;
 }
 
 function pushHistory(question: string) {
@@ -327,8 +367,7 @@ function pushHistory(question: string) {
   } else {
     history.push({ question, at: Date.now() });
   }
-  historyIndex = -1;
-  historyDraft = "";
+  resetNavigation();
 }
 
 function moveCursorEnd() {
@@ -339,30 +378,66 @@ function moveCursorEnd() {
   });
 }
 
-function historyPrev() {
-  pruneHistory();
-  if (!history.length) return;
-  if (historyIndex === -1) {
-    historyDraft = input.value;
-    historyIndex = history.length - 1;
-  } else if (historyIndex > 0) {
-    historyIndex -= 1;
-  }
-  input.value = history[historyIndex].question;
+function navMax() {
+  return forks.length + history.length;
+}
+
+function historyTextAt(cursor: number): string {
+  return history[history.length - cursor + forks.length]?.question ?? "";
+}
+
+function valueAt(cursor: number): string {
+  if (cursor <= 0) return bottomDraft;
+  if (cursor <= forks.length) return forks[cursor - 1];
+  return historyTextAt(cursor);
+}
+
+function setNav(cursor: number) {
+  navCursor = cursor;
+  input.value = valueAt(cursor);
   moveCursorEnd();
 }
 
-function historyNext() {
-  if (historyIndex === -1) return;
-  if (historyIndex < history.length - 1) {
-    historyIndex += 1;
-    input.value = history[historyIndex].question;
-  } else {
-    historyIndex = -1;
-    input.value = historyDraft;
+function navigate(delta: number) {
+  if (navCursor === 0 && delta > 0) {
+    pruneHistory();
   }
-  moveCursorEnd();
+  if (navCursor >= 1 && navCursor <= forks.length && forks[navCursor - 1].trim() === "") {
+    forks.splice(navCursor - 1, 1);
+    if (delta > 0) {
+      setNav(Math.min(navCursor, navMax()));
+    } else {
+      setNav(Math.max(0, navCursor - 1));
+    }
+    return;
+  }
+  const target = navCursor + delta;
+  if (target < 0 || target > navMax()) return;
+  setNav(target);
 }
+
+function historyPrev() {
+  navigate(1);
+}
+
+function historyNext() {
+  navigate(-1);
+}
+
+input.addEventListener("input", () => {
+  const value = input.value;
+  if (navCursor <= 0) {
+    bottomDraft = value;
+    return;
+  }
+  if (navCursor <= forks.length) {
+    forks[navCursor - 1] = value;
+    return;
+  }
+  if (value === historyTextAt(navCursor) || value.trim() === "") return;
+  forks.unshift(value);
+  navCursor = 1;
+});
 
 const MOD_TOKENS = new Set([
   "CmdOrCtrl",
@@ -415,11 +490,11 @@ function modsMatch(mods: Mods, event: KeyboardEvent): boolean {
   return true;
 }
 
-function modsHeld(mods: Mods, event: KeyboardEvent): boolean {
+function baseModsHeld(mods: Mods, event: KeyboardEvent): boolean {
+  if (!(mods.cmdOrCtrl || mods.cmd || mods.ctrl || mods.alt)) return false;
   if (mods.cmdOrCtrl && !(event.metaKey || event.ctrlKey)) return false;
   if (mods.cmd && !event.metaKey) return false;
   if (mods.ctrl && !event.ctrlKey) return false;
-  if (mods.shift && !event.shiftKey) return false;
   if (mods.alt && !event.altKey) return false;
   return true;
 }
@@ -475,12 +550,35 @@ function computeTargets(): HTMLElement[] {
   return Array.from(answerEl.querySelectorAll<HTMLElement>("a[data-href]"));
 }
 
+function badgeIsNumeric(node: HTMLElement): boolean {
+  return /^[0-9]+$/.test(node.dataset.linknum ?? "");
+}
+
+function nodeEligible(node: HTMLElement): boolean {
+  if (!badgeIsNumeric(node)) return true;
+  return linkBuffer === "" || (node.dataset.linknum ?? "").startsWith(linkBuffer);
+}
+
+function hideScopeFor(node: HTMLElement): HTMLElement {
+  if (activeView === "settings") {
+    const row = node.closest<HTMLElement>(".setting-row");
+    if (row) return row;
+  }
+  return node;
+}
+
 function applyLinkFilter() {
+  const scopeEligible = new Map<HTMLElement, boolean>();
   numbered.forEach((node) => {
-    const num = node.dataset.linknum ?? "";
-    const matches = linkBuffer === "" || num.startsWith(linkBuffer);
-    node.classList.toggle("link-hide", !matches);
-    node.classList.toggle("num-active", linkBuffer !== "" && matches);
+    const numeric = badgeIsNumeric(node);
+    const eligible = nodeEligible(node);
+    node.classList.toggle("num-active", numeric && linkBuffer !== "" && eligible);
+    node.classList.toggle("link-hide", numeric && !eligible);
+    const scope = hideScopeFor(node);
+    scopeEligible.set(scope, (scopeEligible.get(scope) ?? false) || eligible);
+  });
+  scopeEligible.forEach((eligible, scope) => {
+    scope.classList.toggle("link-hide", !eligible);
   });
 }
 
@@ -489,10 +587,23 @@ function enterLinkMode() {
   linkMode = true;
   linkBuffer = "";
   linkPaged = false;
-  numbered = computeTargets();
-  numbered.forEach((node, index) => {
-    node.dataset.linknum = String(index);
-  });
+  if (activeView === "login") {
+    connectBtn.dataset.linknum = "⏎";
+    if (import.meta.env.DEV) {
+      const juniorBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="JUNIOR_OP"]');
+      const leadBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="ATS_CORE_LEAD"]');
+      if (juniorBtn) juniorBtn.dataset.linknum = "J";
+      if (leadBtn) leadBtn.dataset.linknum = "L";
+    }
+  } else {
+    numbered = computeTargets();
+    numbered.forEach((node, index) => {
+      node.dataset.linknum = String(index);
+    });
+  }
+  if (!updateBanner.hidden) {
+    updateInstall.dataset.linknum = "U";
+  }
   applyLinkFilter();
 }
 
@@ -506,6 +617,25 @@ function exitLinkMode() {
     delete node.dataset.linknum;
   });
   numbered = [];
+  views.settings
+    .querySelectorAll<HTMLElement>(".setting-row.link-hide")
+    .forEach((row) => row.classList.remove("link-hide"));
+  delete connectBtn.dataset.linknum;
+  connectBtn.classList.remove("num-active");
+  if (import.meta.env.DEV) {
+    const juniorBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="JUNIOR_OP"]');
+    const leadBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="ATS_CORE_LEAD"]');
+    if (juniorBtn) {
+      delete juniorBtn.dataset.linknum;
+      juniorBtn.classList.remove("num-active");
+    }
+    if (leadBtn) {
+      delete leadBtn.dataset.linknum;
+      leadBtn.classList.remove("num-active");
+    }
+  }
+  delete updateInstall.dataset.linknum;
+  updateInstall.classList.remove("num-active");
 }
 
 function candidatesFor(buffer: string): number[] {
@@ -597,18 +727,18 @@ function linkChordEngaged(event: KeyboardEvent): boolean {
 }
 
 function linkChordHeldNow(event: KeyboardEvent): boolean {
-  if (modsHeld(parseMods(linkKeys), event)) return true;
-  return nvimEnabled && mode === "normal" && spaceHeld && event.shiftKey;
+  if (baseModsHeld(parseMods(linkKeys), event)) return true;
+  return nvimEnabled && mode === "normal" && spaceHeld;
 }
 
 function maybeStartChordTimer(event: KeyboardEvent) {
-  if (activeView === "login" || recordingTarget) return;
+  if (recordingTarget) return;
   if (chordTimer !== null || linkMode) return;
   if (!linkChordEngaged(event)) return;
   chordTimer = window.setTimeout(() => {
     chordTimer = null;
-    if (activeView === "login" || recordingTarget) return;
-    if (activeView === "settings") enterLinkMode();
+    if (recordingTarget) return;
+    if (activeView === "settings" || activeView === "login") enterLinkMode();
     else pageToLinks(1);
   }, 300);
 }
@@ -666,6 +796,7 @@ function backToConversation() {
   disarmLogout();
   showView("search");
   focusInput();
+  lastEscapeTime = Date.now();
 }
 
 function toggleSettings() {
@@ -687,6 +818,9 @@ function handleNvimInsert(event: KeyboardEvent): boolean {
   if (isEnterNormalKey(event)) {
     event.preventDefault();
     enterNormal();
+    if (event.code === "Escape" || event.code === normalCode) {
+      lastEscapeTime = Date.now();
+    }
     return true;
   }
   if (
@@ -719,14 +853,45 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
   }
 
   if (spaceHeld) {
+    event.preventDefault();
+    if (linkMode) {
+      const digit = digitOf(event);
+      if (digit !== null) {
+        pressLinkDigit(digit);
+        return true;
+      }
+    }
     if (event.shiftKey) {
-      if (activeView === "settings" && event.code === "KeyQ") {
-        if (logoutArmed) {
-          disarmLogout();
-          void doLogout();
-        } else {
-          armLogout();
+      if (activeView === "login") {
+        if (event.code === "Enter" || event.code === "NumpadEnter") {
+          exitLinkMode();
+          connectBtn.click();
+          return true;
         }
+        if (import.meta.env.DEV) {
+          if (event.code === "KeyJ") {
+            exitLinkMode();
+            const juniorBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="JUNIOR_OP"]');
+            if (juniorBtn) juniorBtn.click();
+            return true;
+          }
+          if (event.code === "KeyL") {
+            exitLinkMode();
+            const leadBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="ATS_CORE_LEAD"]');
+            if (leadBtn) leadBtn.click();
+            return true;
+          }
+        } else {
+          if (event.code === "KeyL") {
+            exitLinkMode();
+            connectBtn.click();
+            return true;
+          }
+        }
+      }
+      if (!updateBanner.hidden && event.code === "KeyU") {
+        exitLinkMode();
+        void installUpdate();
         return true;
       }
       const digit = digitOf(event);
@@ -785,17 +950,17 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
   if (event.metaKey || event.ctrlKey || event.altKey) return false;
 
   if (activeView === "settings") {
-    if (event.code === "KeyH" || event.code === "Escape") {
+    if (event.code === "KeyH" || event.code === "ArrowLeft" || event.code === "Escape") {
       event.preventDefault();
       backToConversation();
       return true;
     }
-    if (event.code === "KeyJ") {
+    if (event.code === "KeyJ" || event.code === "ArrowDown") {
       event.preventDefault();
       scrollContainer(settingsBody, 1);
       return true;
     }
-    if (event.code === "KeyK") {
+    if (event.code === "KeyK" || event.code === "ArrowUp") {
       event.preventDefault();
       scrollContainer(settingsBody, -1);
       return true;
@@ -815,18 +980,22 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
       enterInsert(event.shiftKey ? input.value.length : caret + 1);
       return true;
     case "KeyH":
+    case "ArrowLeft":
       event.preventDefault();
       setCaret(caret - 1);
       return true;
     case "KeyL":
+    case "ArrowRight":
       event.preventDefault();
       setCaret(caret + 1);
       return true;
     case "KeyK":
+    case "ArrowUp":
       event.preventDefault();
       historyPrev();
       return true;
     case "KeyJ":
+    case "ArrowDown":
       event.preventDefault();
       historyNext();
       return true;
@@ -857,7 +1026,17 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
       return true;
     case "Escape":
       event.preventDefault();
-      if (linkMode) exitLinkMode();
+      if (linkMode) {
+        exitLinkMode();
+        return true;
+      }
+      const now = Date.now();
+      if (now - lastEscapeTime < 300) {
+        lastEscapeTime = 0;
+        void invoke("hide_window");
+      } else {
+        lastEscapeTime = now;
+      }
       return true;
     case "Enter":
     case "NumpadEnter":
@@ -872,7 +1051,7 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
 }
 
 function handleNvim(event: KeyboardEvent): boolean {
-  if (!nvimEnabled || activeView === "login") return false;
+  if (!nvimEnabled) return false;
   if (mode === "insert") return handleNvimInsert(event);
   return handleNvimNormal(event);
 }
@@ -1128,24 +1307,17 @@ function openSettings() {
   showView("settings");
 }
 
-function armLogout() {
-  logoutArmed = true;
-  logoutBtn.textContent = "Press ⇧Q again to log out";
-  if (logoutTimer !== null) clearTimeout(logoutTimer);
-  logoutTimer = window.setTimeout(disarmLogout, 2500);
-}
-
 function disarmLogout() {
-  logoutArmed = false;
-  if (logoutTimer !== null) {
-    clearTimeout(logoutTimer);
-    logoutTimer = null;
-  }
   logoutBtn.textContent = "Log out";
 }
 
 async function doLogout() {
   disarmLogout();
+  history = [];
+  resetNavigation();
+  input.value = "";
+  answerEl.innerHTML = "";
+  panel.hidden = true;
   await invoke("logout");
   await renderSession();
 }
@@ -1158,11 +1330,50 @@ async function onOpen() {
     focusInput();
   } else {
     updateModeBadge();
-    window.requestAnimationFrame(() => connectBtn.focus());
+    if (nvimEnabled) {
+      setMode("normal");
+    }
   }
 }
 
 function handleInAppShortcut(event: KeyboardEvent): boolean {
+  if (activeView === "login") {
+    const linkMods = parseMods(linkKeys);
+    if (modsMatch(linkMods, event)) {
+      if (event.code === "Enter" || event.code === "NumpadEnter") {
+        exitLinkMode();
+        connectBtn.click();
+        return true;
+      }
+      if (!updateBanner.hidden && event.code === "KeyU") {
+        exitLinkMode();
+        void installUpdate();
+        return true;
+      }
+      if (import.meta.env.DEV) {
+        if (event.code === "KeyJ") {
+          exitLinkMode();
+          const juniorBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="JUNIOR_OP"]');
+          if (juniorBtn) juniorBtn.click();
+          return true;
+        }
+        if (event.code === "KeyL") {
+          exitLinkMode();
+          const leadBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="ATS_CORE_LEAD"]');
+          if (leadBtn) leadBtn.click();
+          return true;
+        }
+      } else {
+        if (event.code === "KeyL") {
+          exitLinkMode();
+          connectBtn.click();
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   if (activeView === "settings") {
     const backByShortcut =
       modsMatch(parseMods(settingsKeys), event) &&
@@ -1179,22 +1390,20 @@ function handleInAppShortcut(event: KeyboardEvent): boolean {
       focusInput();
       return true;
     }
-    if (
-      event.code === "KeyQ" &&
-      event.shiftKey &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      !event.altKey
-    ) {
-      if (logoutArmed) {
-        disarmLogout();
-        void doLogout();
-      } else {
-        armLogout();
+
+    if (linkMode && linkChordHeldNow(event)) {
+      const digit = digitOf(event);
+      if (digit !== null) {
+        pressLinkDigit(digit);
+        return true;
       }
-      return true;
     }
     if (modsMatch(parseMods(linkKeys), event)) {
+      if (!updateBanner.hidden && event.code === "KeyU") {
+        exitLinkMode();
+        void installUpdate();
+        return true;
+      }
       const digit = digitOf(event);
       if (digit !== null) {
         pressLinkDigit(digit);
@@ -1232,8 +1441,21 @@ function handleInAppShortcut(event: KeyboardEvent): boolean {
     return true;
   }
 
+  if (linkMode && linkChordHeldNow(event)) {
+    const digit = digitOf(event);
+    if (digit !== null) {
+      pressLinkDigit(digit);
+      return true;
+    }
+  }
+
   const linkMods = parseMods(linkKeys);
   if (modsMatch(linkMods, event)) {
+    if (!updateBanner.hidden && event.code === "KeyU") {
+      exitLinkMode();
+      void installUpdate();
+      return true;
+    }
     const digit = digitOf(event);
     if (digit !== null) {
       pressLinkDigit(digit);
@@ -1339,6 +1561,12 @@ window.addEventListener(
       return;
     }
 
+    if (activeView === "login" && event.key === "Enter" && !connectBtn.hidden && !connectBtn.disabled) {
+      event.preventDefault();
+      connectBtn.click();
+      return;
+    }
+
     if (pending && event.ctrlKey && event.code === "KeyC") {
       event.preventDefault();
       void invoke("cancel_ask");
@@ -1359,6 +1587,17 @@ window.addEventListener(
         disarmLogout();
         showView("search");
         focusInput();
+        lastEscapeTime = Date.now();
+        return;
+      }
+      if (nvimEnabled) {
+        const now = Date.now();
+        if (now - lastEscapeTime < 300) {
+          lastEscapeTime = 0;
+          void invoke("hide_window");
+        } else {
+          lastEscapeTime = now;
+        }
         return;
       }
       void invoke("hide_window");

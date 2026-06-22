@@ -9,8 +9,15 @@
   --danger: #f87171;
 }
 
+/* Hide scrollbars globally */
+::-webkit-scrollbar {
+  display: none !important;
+}
+
 * {
   box-sizing: border-box;
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
 }
 
 [hidden] {
@@ -264,10 +271,23 @@ body {
   vertical-align: bottom;
 }
 
+[data-linknum] {
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+button[data-linknum],
+.hotkey-display[data-linknum] {
+  justify-content: center !important;
+}
+
 [data-linknum]::before {
   content: attr(data-linknum);
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 16px;
+  height: 16px;
   margin-right: 6px;
   padding: 0 4px;
   border-radius: 5px;
@@ -278,7 +298,8 @@ body {
   font-size: 11px;
   font-weight: 600;
   text-align: center;
-  vertical-align: baseline;
+  text-transform: uppercase;
+  flex-shrink: 0;
 }
 
 [data-linknum].num-active::before {
@@ -286,8 +307,15 @@ body {
   border-color: var(--accent);
 }
 
+.update-btn[data-linknum]::before,
+.primary-btn[data-linknum]::before {
+  background: #06121b;
+  color: var(--accent);
+  border-color: #06121b;
+}
+
 .link-hide {
-  display: none;
+  display: none !important;
 }
 
 .answer .link:hover {
