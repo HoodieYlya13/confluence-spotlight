@@ -6,7 +6,7 @@ pub use mcp::{ask, McpConfig};
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "macos")]
 use tauri::ActivationPolicy;
@@ -35,9 +35,16 @@ tauri_panel! {
     })
 }
 
+const DEFAULT_SCROLL_KEYS: &str = "CmdOrCtrl+Down";
+const DEFAULT_LINK_KEYS: &str = "CmdOrCtrl+Shift+Down";
+const DEFAULT_SETTINGS_KEYS: &str = "CmdOrCtrl+,";
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct Settings {
     hotkey: Option<String>,
+    scroll_keys: Option<String>,
+    link_keys: Option<String>,
+    settings_keys: Option<String>,
 }
 
 #[derive(Clone)]
@@ -68,6 +75,7 @@ struct AppState {
     hotkey_registered: Mutex<bool>,
     auth: Mutex<Option<Auth>>,
     pending_auth: Mutex<Option<PendingAuth>>,
+    cancel: Arc<tokio::sync::Notify>,
 }
 
 #[derive(Serialize)]
@@ -75,6 +83,9 @@ struct SessionView {
     role: Option<String>,
     role_label: Option<String>,
     hotkey: String,
+    scroll_keys: String,
+    link_keys: String,
+    settings_keys: String,
 }
 
 #[derive(Serialize)]
@@ -131,6 +142,23 @@ fn current_hotkey(state: &AppState) -> String {
 
 fn session_view(state: &AppState) -> SessionView {
     let hotkey = current_hotkey(state);
+    let (scroll_keys, link_keys, settings_keys) = {
+        let settings = state.settings.lock().unwrap();
+        (
+            settings
+                .scroll_keys
+                .clone()
+                .unwrap_or_else(|| DEFAULT_SCROLL_KEYS.to_string()),
+            settings
+                .link_keys
+                .clone()
+                .unwrap_or_else(|| DEFAULT_LINK_KEYS.to_string()),
+            settings
+                .settings_keys
+                .clone()
+                .unwrap_or_else(|| DEFAULT_SETTINGS_KEYS.to_string()),
+        )
+    };
     let auth = state.auth.lock().unwrap();
     let role = auth.as_ref().map(|auth| auth.role.clone());
     let role_label = role
@@ -142,6 +170,9 @@ fn session_view(state: &AppState) -> SessionView {
         role,
         role_label,
         hotkey,
+        scroll_keys,
+        link_keys,
+        settings_keys,
     }
 }
 
@@ -266,6 +297,31 @@ fn set_hotkey(
 }
 
 #[tauri::command]
+fn set_binding(
+    state: tauri::State<'_, AppState>,
+    name: String,
+    accelerator: String,
+) -> Result<SessionView, String> {
+    let trimmed = accelerator.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("Empty shortcut.".to_string());
+    }
+
+    {
+        let mut settings = state.settings.lock().unwrap();
+        match name.as_str() {
+            "scroll" => settings.scroll_keys = Some(trimmed),
+            "links" => settings.link_keys = Some(trimmed),
+            "settings" => settings.settings_keys = Some(trimmed),
+            _ => return Err(format!("Unknown binding '{name}'.")),
+        }
+        save_settings(&state.settings_path, &settings);
+    }
+
+    Ok(session_view(state.inner()))
+}
+
+#[tauri::command]
 async fn ask_question(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
@@ -289,14 +345,25 @@ async fn ask_question(
         (state.config.server_url.clone(), auth.token.clone(), label)
     };
 
-    let answer = mcp::ask(&server_url, &token, &trimmed)
-        .await
-        .map_err(|error| error.to_string())?;
+    let cancel = state.cancel.clone();
+    let answer = tokio::select! {
+        result = mcp::ask(&server_url, &token, &trimmed) => {
+            result.map_err(|error| error.to_string())?
+        }
+        _ = cancel.notified() => {
+            return Err("__cancelled__".to_string());
+        }
+    };
 
     Ok(AnswerPayload {
         answer,
         role: role_label,
     })
+}
+
+#[tauri::command]
+fn cancel_ask(state: tauri::State<'_, AppState>) {
+    state.cancel.notify_waiters();
 }
 
 fn register_current_hotkey_internal(app: &AppHandle) -> Result<(), String> {
@@ -748,11 +815,13 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             ask_question,
+            cancel_ask,
             get_session,
             begin_login,
             logout,
             dev_login,
             set_hotkey,
+            set_binding,
             hide_window,
             install_update,
             check_update,
@@ -793,6 +862,7 @@ pub fn run() {
                 hotkey_registered: Mutex::new(hotkey_registered),
                 auth: Mutex::new(None),
                 pending_auth: Mutex::new(None),
+                cancel: Arc::new(tokio::sync::Notify::new()),
             });
 
             #[cfg(any(target_os = "windows", target_os = "linux"))]

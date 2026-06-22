@@ -66,10 +66,28 @@ On launch it shows a **connect** screen. **Connect** opens your browser to sign 
 
 Then type a question and press Enter; click a source link to open the Confluence page in your system browser; press **Esc** or click away to dismiss. Tokens are held in memory only (not persisted), so you reconnect each launch; in production the refresh token renews an expired access token in place.
 
+The bar is keyboard-first — defaults below, and the modifier-based ones are remappable in Settings:
+
+| Keys | Action |
+|---|---|
+| `↑` / `↓` | Step through your questions from the last 24 h (in-memory) and tweak them |
+| `⌘/Ctrl + ↑/↓` | Scroll the answer (also scrolls the Settings screen) |
+| Hold `⌘/Ctrl + Shift` | After ~300 ms (so it doesn't clash with `⌘/Ctrl+Shift+Space`), scroll to the source links — first link kept visible — and number them. Release removes the numbers; hold again to re-scroll |
+| `⌘/Ctrl + Shift + ↓` / `↑` | Page through link overflow (the `↓` form also jumps to the links immediately, no wait) |
+| `⌘/Ctrl + Shift + <digit>` | Open a numbered link — type more digits for ≥ 10 links; release the chord to open the shorter number |
+| `⌘/Ctrl + ,` | Open / close Settings |
+| In Settings: `Esc` / `←` / `⌘/Ctrl + ,` | Back to the conversation |
+| In Settings: `Shift + Q` ×2 | Log out (press twice within ~2.5 s to confirm) |
+| `Ctrl + C` while a request runs | Cancel the in-flight question (shown as `⌃C to cancel` beside the status) |
+| `Esc` | Leave link mode, then dismiss the window |
+
+The search box keeps the caret while you click around the bar, so you can start typing the next question at any moment. Source links stay on a single line (truncated with an ellipsis) rather than wrapping.
+
 The **gear** in the bar opens **Settings**, where you can:
 
 - **Log out** to return to the connect screen (in a dev build, to switch persona; in a released build, to sign in as a different account).
 - **Change the global hotkey** — click the shortcut, press a new key combination, and Save (registered immediately and persisted).
+- **Remap the in-window shortcuts** — Scroll answer, Jump to links, and Open settings use the same record-a-shortcut control and persist alongside the hotkey. (The `↑`/`↓` history keys are a fixed terminal-style convention.)
 
 > **macOS:** the deep-link sign-in only works in a **built, installed** app (custom URL schemes can't be registered under `bun run tauri dev` on macOS). Build it, drag the `.app` to `/Applications`, and run it from there. Under `tauri dev` everything else works, but **Connect** won't round-trip back — use the **Dev sign-in** row below.
 

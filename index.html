@@ -77,7 +77,10 @@
         </form>
 
         <div id="panel" hidden>
-          <div id="status" hidden></div>
+          <div id="status" hidden>
+            <span id="status-text"></span>
+            <span id="status-hint" class="status-hint" hidden>⌃C to cancel</span>
+          </div>
           <div id="answer" class="answer"></div>
         </div>
       </section>
@@ -110,6 +113,44 @@
             </div>
             <div class="setting-hint">Click the shortcut, then press a new key combination.</div>
             <div id="hotkey-error" class="form-error" hidden></div>
+          </div>
+
+          <div class="setting-row column">
+            <div class="setting-label">Scroll answer</div>
+            <div class="hotkey-row">
+              <button id="scroll-record" class="hotkey-display" type="button"></button>
+              <button id="scroll-save" class="ghost-btn" type="button" hidden>Save</button>
+              <button id="scroll-cancel" class="ghost-btn" type="button" hidden>Cancel</button>
+            </div>
+            <div class="setting-hint">Press your modifier(s) + ↓. ↑ uses the same modifiers.</div>
+            <div id="scroll-error" class="form-error" hidden></div>
+          </div>
+
+          <div class="setting-row column">
+            <div class="setting-label">Jump to links</div>
+            <div class="hotkey-row">
+              <button id="links-record" class="hotkey-display" type="button"></button>
+              <button id="links-save" class="ghost-btn" type="button" hidden>Save</button>
+              <button id="links-cancel" class="ghost-btn" type="button" hidden>Cancel</button>
+            </div>
+            <div class="setting-hint">Press your modifier(s) + ↓ to page to numbered links; ↑ and digit (open link) share the same modifiers.</div>
+            <div id="links-error" class="form-error" hidden></div>
+          </div>
+
+          <div class="setting-row column">
+            <div class="setting-label">Open settings</div>
+            <div class="hotkey-row">
+              <button id="settingskey-record" class="hotkey-display" type="button"></button>
+              <button id="settingskey-save" class="ghost-btn" type="button" hidden>Save</button>
+              <button id="settingskey-cancel" class="ghost-btn" type="button" hidden>Cancel</button>
+            </div>
+            <div class="setting-hint">Shortcut to open this settings screen.</div>
+            <div id="settingskey-error" class="form-error" hidden></div>
+          </div>
+
+          <div class="setting-row column">
+            <div class="setting-label">History</div>
+            <div class="setting-hint">↑ / ↓ in the search box step through your questions from the last 24 hours.</div>
           </div>
 
           <div class="setting-row column">

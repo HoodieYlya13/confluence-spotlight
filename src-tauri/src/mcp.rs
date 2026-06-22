@@ -91,7 +91,9 @@ fn non_empty_env(key: &str) -> Option<String> {
 }
 
 fn non_empty_str(value: Option<&str>) -> Option<String> {
-    value.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    value
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn endpoint(server_url: &str) -> String {
