@@ -467,6 +467,11 @@ fn hide_window(app: AppHandle) {
     hide_window_impl(&app);
 }
 
+#[tauri::command]
+fn show_window_command(app: AppHandle) {
+    show_window(&app);
+}
+
 fn deep_link_redirect_uri(app: &AppHandle) -> String {
     let scheme = app
         .config()
@@ -908,6 +913,7 @@ pub fn run() {
             set_nvim_mode,
             set_nvim_open_mode,
             hide_window,
+            show_window_command,
             install_update,
             check_update,
             register_current_hotkey,
@@ -925,12 +931,7 @@ pub fn run() {
                 .map(|dir| dir.join("session.json"))
                 .unwrap_or_else(|_| PathBuf::from("session.json"));
             let mut settings = load_settings(&settings_path);
-            {
-                let handle = app.handle().clone();
-                let _ = app.run_on_main_thread(move || {
-                    show_window(&handle);
-                });
-            }
+
             if settings.hotkey.is_none() {
                 settings.hotkey = Some(config.default_hotkey.clone());
             }

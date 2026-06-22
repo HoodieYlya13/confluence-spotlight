@@ -1334,6 +1334,7 @@ async function onOpen() {
       setMode("normal");
     }
   }
+  void invoke("show_window_command");
 }
 
 function handleInAppShortcut(event: KeyboardEvent): boolean {
