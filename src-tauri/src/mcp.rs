@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 const DEFAULT_SERVER_URL: &str = "https://hoodieylya13-mcp-confluence-documentation-rag.hf.space";
 const DEFAULT_AUTH_URL: &str = "https://confluence-bot.hy13dev.com";
 const DEFAULT_SSO_ISSUER: &str = "https://auth.hy13dev.com";
+const DEFAULT_SSO_CLIENT_ID: &str = "confluence-spotlight-gjOtqPBt";
 const SSO_SCOPE: &str = "openid profile email offline_access";
 const DEFAULT_HOTKEY: &str = "CmdOrCtrl+Shift+Space";
 const ASK_TOOL: &str = "ask_accelerator_operations";
@@ -55,7 +56,7 @@ impl McpConfig {
 
         let sso_client_id = non_empty_env("SSO_CLIENT_ID")
             .or_else(|| option_env!("SSO_CLIENT_ID").map(|s| s.to_string()))
-            .unwrap_or_default();
+            .unwrap_or_else(|| DEFAULT_SSO_CLIENT_ID.to_string());
 
         let use_sso = match non_empty_env("SPOTLIGHT_USE_SSO")
             .or_else(|| option_env!("SPOTLIGHT_USE_SSO").map(|s| s.to_string()))
