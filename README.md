@@ -87,7 +87,7 @@ Prints the grounded answer and its source links straight from the server, provin
 Cross-platform installers are produced by the GitHub Actions [`release` workflow](.github/workflows/release.yml) (`tauri-apps/tauri-action`) on every `v*` tag — macOS (universal `.dmg`), Windows (`.exe`/`.msi`), Linux (`.AppImage`/`.deb`) — and attached to a draft GitHub release. Cut one by pushing a tag:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.1.1 && git push origin v0.1.1
 ```
 
 To build locally for your own platform:
