@@ -14,7 +14,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete any existing release for this tag
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete "$TAG" --repo "$REPO" --yes || true
+
   release:
+    needs: cleanup
     strategy:
       fail-fast: false
       matrix:

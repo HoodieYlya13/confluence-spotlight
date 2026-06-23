@@ -60,6 +60,9 @@ struct Auth {
     token: String,
     refresh_token: Option<String>,
     expires_at: Option<u64>,
+    username: Option<String>,
+    given_name: Option<String>,
+    account_url: Option<String>,
 }
 
 struct PendingAuth {
@@ -89,6 +92,9 @@ struct AppState {
 struct SessionView {
     role: Option<String>,
     role_label: Option<String>,
+    username: Option<String>,
+    given_name: Option<String>,
+    account_url: Option<String>,
     hotkey: String,
     scroll_keys: String,
     link_keys: String,
@@ -195,10 +201,16 @@ fn session_view(state: &AppState) -> SessionView {
         .as_deref()
         .and_then(mcp::role_label)
         .map(|label| label.to_string());
+    let username = auth.as_ref().and_then(|auth| auth.username.clone());
+    let given_name = auth.as_ref().and_then(|auth| auth.given_name.clone());
+    let account_url = auth.as_ref().and_then(|auth| auth.account_url.clone());
 
     SessionView {
         role,
         role_label,
+        username,
+        given_name,
+        account_url,
         hotkey,
         scroll_keys,
         link_keys,
@@ -278,11 +290,15 @@ fn dev_login(role: String, state: tauri::State<'_, AppState>) -> Result<SessionV
         }
         match dev_token(&role) {
             Some(token) => {
+                let profile = mcp::profile_from_access_token(&token);
                 *state.auth.lock().unwrap() = Some(Auth {
                     role,
                     token,
                     refresh_token: None,
                     expires_at: None,
+                    username: profile.username,
+                    given_name: profile.given_name,
+                    account_url: profile.account_url,
                 });
                 Ok(session_view(state.inner()))
             }
@@ -578,6 +594,11 @@ fn handle_auth_url(app: &AppHandle, url: &url::Url) {
         return;
     };
 
+    {
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || show_window(&handle));
+    }
+
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
@@ -613,12 +634,16 @@ fn handle_auth_url(app: &AppHandle, url: &url::Url) {
                     Some(role) => {
                         let role_label = mcp::role_label(&role).unwrap_or(&role).to_string();
                         let expires_at = expiry_from_now(tokens.expires_in);
+                        let profile = mcp::profile_from_access_token(&tokens.access_token);
                         if let Some(state) = app.try_state::<AppState>() {
                             *state.auth.lock().unwrap() = Some(Auth {
                                 role,
                                 token: tokens.access_token,
                                 refresh_token: tokens.refresh_token,
                                 expires_at,
+                                username: profile.username,
+                                given_name: profile.given_name,
+                                account_url: profile.account_url,
                             });
                         }
                         finish_login(&app, role_label);
@@ -633,12 +658,16 @@ fn handle_auth_url(app: &AppHandle, url: &url::Url) {
             // Dev / demo: exchange at the frontend for a hardcoded role token.
             match mcp::exchange_code(&config.auth_url, &code, &verifier).await {
                 Ok(token) => {
+                    let profile = mcp::profile_from_access_token(&token.access_token);
                     if let Some(state) = app.try_state::<AppState>() {
                         *state.auth.lock().unwrap() = Some(Auth {
                             role: token.role,
                             token: token.access_token,
                             refresh_token: None,
                             expires_at: None,
+                            username: profile.username,
+                            given_name: profile.given_name,
+                            account_url: profile.account_url,
                         });
                     }
                     finish_login(&app, token.role_label);
@@ -655,8 +684,6 @@ fn expiry_from_now(expires_in: Option<i64>) -> Option<u64> {
 }
 
 fn finish_login(app: &AppHandle, role_label: String) {
-    let window_handle = app.clone();
-    let _ = app.run_on_main_thread(move || show_window(&window_handle));
     let _ = app.emit(
         "spotlight-auth",
         AuthEvent {
@@ -700,13 +727,16 @@ async fn refresh_if_needed(app: &AppHandle) {
     {
         if let Some(role) = mcp::role_from_access_token(&tokens.access_token) {
             let expires_at = expiry_from_now(tokens.expires_in);
+            let profile = mcp::profile_from_access_token(&tokens.access_token);
             if let Some(state) = app.try_state::<AppState>() {
                 *state.auth.lock().unwrap() = Some(Auth {
                     role,
                     token: tokens.access_token,
-                    // The IdP rotates refresh tokens; fall back to the old one if absent.
                     refresh_token: tokens.refresh_token.or(Some(refresh_token)),
                     expires_at,
+                    username: profile.username,
+                    given_name: profile.given_name,
+                    account_url: profile.account_url,
                 });
             }
         }

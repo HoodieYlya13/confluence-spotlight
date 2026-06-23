@@ -244,6 +244,37 @@ pub fn role_from_access_token(token: &str) -> Option<String> {
     }
 }
 
+#[derive(Clone, Default)]
+pub struct Profile {
+    pub username: Option<String>,
+    pub given_name: Option<String>,
+    pub account_url: Option<String>,
+}
+
+pub fn profile_from_access_token(token: &str) -> Profile {
+    let Some(payload) = token.split('.').nth(1) else {
+        return Profile::default();
+    };
+    let Ok(bytes) = URL_SAFE_NO_PAD.decode(payload) else {
+        return Profile::default();
+    };
+    let Ok(claims) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return Profile::default();
+    };
+    let string_claim = |key: &str| {
+        claims
+            .get(key)
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+    };
+    Profile {
+        username: string_claim("preferred_username"),
+        given_name: string_claim("given_name"),
+        account_url: string_claim("iss")
+            .map(|iss| format!("{}/en/account", iss.trim_end_matches('/'))),
+    }
+}
+
 pub async fn ask(server_url: &str, token: &str, question: &str) -> Result<String> {
     if token.trim().is_empty() {
         return Err(anyhow!(

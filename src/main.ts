@@ -6,6 +6,9 @@ import { renderMarkdown } from "./markdown";
 type SessionView = {
   role: string | null;
   role_label: string | null;
+  username: string | null;
+  given_name: string | null;
+  account_url: string | null;
   hotkey: string;
   scroll_keys: string;
   link_keys: string;
@@ -51,8 +54,8 @@ const statusEl = el<HTMLDivElement>("#status");
 const statusText = el<HTMLSpanElement>("#status-text");
 const statusHint = el<HTMLSpanElement>("#status-hint");
 const answerEl = el<HTMLDivElement>("#answer");
-const badge = el<HTMLSpanElement>("#role-badge");
 const modeBadge = el<HTMLSpanElement>("#mode-badge");
+const manageAccountBtn = el<HTMLButtonElement>("#manage-account-btn");
 const settingsBtn = el<HTMLButtonElement>("#settings-btn");
 
 const nvimToggle = el<HTMLButtonElement>("#nvim-toggle");
@@ -74,6 +77,9 @@ const settingsBack = el<HTMLButtonElement>("#settings-back");
 const settingsBody = el<HTMLDivElement>(".settings-body");
 const settingsRole = el<HTMLDivElement>("#settings-role");
 const logoutBtn = el<HTMLButtonElement>("#logout-btn");
+const DEFAULT_PLACEHOLDER = "Ask the accelerator operations assistant…";
+let identityName = "—";
+let accountUrl: string | null = null;
 const checkUpdateBtn = el<HTMLButtonElement>("#check-update");
 const updateStatus = el<HTMLDivElement>("#update-status");
 const appVersion = el<HTMLSpanElement>("#app-version");
@@ -230,13 +236,22 @@ function applyBindings(session: SessionView) {
   leaderCode = session.nvim_leader;
   normalCode = session.nvim_normal;
   appVersion.textContent = `v${session.app_version}`;
+
+  identityName =
+    session.username ?? session.role_label ?? session.role ?? "—";
+  accountUrl = session.account_url;
+  manageAccountBtn.hidden = !accountUrl;
+  const greetName =
+    session.given_name ?? session.username ?? session.role_label ?? session.role;
+  input.placeholder = greetName
+    ? `Hello ${greetName}! ${DEFAULT_PLACEHOLDER}`
+    : DEFAULT_PLACEHOLDER;
 }
 
 async function renderSession(): Promise<SessionView> {
   const session = await invoke<SessionView>("get_session");
   applyBindings(session);
   if (session.role) {
-    badge.textContent = session.role_label ?? session.role;
     showView("search");
     updateModeBadge();
   } else {
@@ -262,6 +277,7 @@ async function beginLogin() {
     await invoke("begin_login");
     connectBtn.hidden = true;
     loginWaiting.hidden = false;
+    void invoke("hide_window");
   } catch (error) {
     resetLogin();
     loginError.textContent = asMessage(error);
@@ -1114,7 +1130,6 @@ async function submit() {
 
   try {
     const result = await invoke<AnswerPayload>("ask_question", { question });
-    badge.textContent = result.role;
     setStatus("");
     answerEl.innerHTML = renderMarkdown(result.answer);
     panel.scrollTop = 0;
@@ -1296,7 +1311,7 @@ async function saveBinding() {
 }
 
 function openSettings() {
-  settingsRole.textContent = badge.textContent || "—";
+  settingsRole.textContent = identityName;
   disarmLogout();
   void exitRecording();
   for (const name of bindingNames) {
@@ -1542,6 +1557,9 @@ settingsBack.addEventListener("click", () => {
   focusInput();
 });
 logoutBtn.addEventListener("click", () => void doLogout());
+manageAccountBtn.addEventListener("click", () => {
+  if (accountUrl) void openUrl(accountUrl);
+});
 checkUpdateBtn.addEventListener("click", () => void checkForUpdates());
 nvimToggle.addEventListener("click", () => void toggleNvim());
 nvimOpenInsert.addEventListener("click", () => void setOpenMode("insert"));
