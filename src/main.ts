@@ -259,6 +259,9 @@ function applyBindings(session: SessionView) {
   identityName =
     session.username ?? session.role_label ?? session.role ?? "—";
   accountUrl = session.account_url;
+  if (!accountUrl && import.meta.env.DEV) {
+    accountUrl = "https://auth.hy13dev.com/en/account";
+  }
   manageAccountBtn.hidden = !accountUrl;
   const greetName =
     session.given_name ?? session.username ?? session.role_label ?? session.role;
@@ -718,6 +721,39 @@ function exitLinkMode() {
   updateInstall.classList.remove("num-active");
 }
 
+function activateLinkKey(event: KeyboardEvent): boolean {
+  if (!updateBanner.hidden && event.code === "KeyU") {
+    exitLinkMode();
+    void installUpdate();
+    return true;
+  }
+  if (activeView !== "login") return false;
+  if (event.code === "Enter" || event.code === "NumpadEnter") {
+    exitLinkMode();
+    connectBtn.click();
+    return true;
+  }
+  if (import.meta.env.DEV) {
+    if (event.code === "KeyJ") {
+      exitLinkMode();
+      const juniorBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="JUNIOR_OP"]');
+      if (juniorBtn) juniorBtn.click();
+      return true;
+    }
+    if (event.code === "KeyL") {
+      exitLinkMode();
+      const leadBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="ATS_CORE_LEAD"]');
+      if (leadBtn) leadBtn.click();
+      return true;
+    }
+  } else if (event.code === "KeyL") {
+    exitLinkMode();
+    connectBtn.click();
+    return true;
+  }
+  return false;
+}
+
 function candidatesFor(buffer: string): number[] {
   const result: number[] = [];
   for (let i = 0; i < numbered.length; i += 1) {
@@ -1073,6 +1109,7 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
         pressLinkDigit(digit);
         return true;
       }
+      if (activateLinkKey(event)) return true;
     }
     if (event.shiftKey) {
       if (activeView === "login") {
@@ -1686,6 +1723,7 @@ async function onOpen() {
 
 function handleInAppShortcut(event: KeyboardEvent): boolean {
   if (activeView === "login") {
+    if (linkMode && linkChordHeldNow(event) && activateLinkKey(event)) return true;
     const linkMods = parseMods(linkKeys);
     if (modsMatch(linkMods, event)) {
       if (event.code === "Enter" || event.code === "NumpadEnter") {
@@ -1745,6 +1783,7 @@ function handleInAppShortcut(event: KeyboardEvent): boolean {
         pressLinkDigit(digit);
         return true;
       }
+      if (activateLinkKey(event)) return true;
     }
     if (modsMatch(parseMods(linkKeys), event)) {
       if (!updateBanner.hidden && event.code === "KeyU") {
@@ -1795,6 +1834,7 @@ function handleInAppShortcut(event: KeyboardEvent): boolean {
       pressLinkDigit(digit);
       return true;
     }
+    if (activateLinkKey(event)) return true;
   }
 
   const linkMods = parseMods(linkKeys);
