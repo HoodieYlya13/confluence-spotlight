@@ -17,15 +17,43 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete any existing release for this tag
+      - name: Delete any existing releases for this tag
         env:
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release delete "$TAG" --repo "$REPO" --yes || true
+        run: |
+          ids=$(gh api "repos/$REPO/releases" --paginate \
+            --jq ".[] | select(.tag_name == \"$TAG\") | .id")
+          for id in $ids; do
+            echo "Deleting existing release $id for $TAG"
+            gh api -X DELETE "repos/$REPO/releases/$id"
+          done
+
+  create-release:
+    needs: cleanup
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.result }}
+    steps:
+      - name: Create the draft release
+        id: create
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: process.env.GITHUB_REF_NAME,
+              name: `Confluence Spotlight ${process.env.GITHUB_REF_NAME}`,
+              body: "Cross-platform builds of Confluence Spotlight. macOS and Windows builds are unsigned — see the README for the Gatekeeper bypass.",
+              draft: true,
+              prerelease: false,
+            });
+            return data.id;
 
   release:
-    needs: cleanup
+    needs: create-release
     strategy:
       fail-fast: false
       matrix:
@@ -84,9 +112,22 @@ jobs:
           MCP_SERVER_URL: ${{ vars.MCP_SERVER_URL }}
           SPOTLIGHT_HOTKEY: ${{ vars.SPOTLIGHT_HOTKEY }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Confluence Spotlight ${{ github.ref_name }}"
-          releaseBody: "Cross-platform builds of Confluence Spotlight. macOS and Windows builds are unsigned — see the README for the Gatekeeper bypass."
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
+
+  publish-release:
+    needs: [create-release, release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+        with:
+          script: |
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: Number(process.env.RELEASE_ID),
+              draft: false,
+            });

@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  readText as readClipboard,
+  writeText as writeClipboard,
+} from "@tauri-apps/plugin-clipboard-manager";
 import { renderMarkdown } from "./markdown";
 
 type SessionView = {
@@ -172,7 +176,8 @@ let lastEscapeTime = 0;
 let visualAnchor = 0;
 let visualCursor = 0;
 let vimRegister = "";
-let programmaticSelection = false;
+let lastSetSelection: { start: number; end: number } | null = null;
+let lastSelValue = "";
 const undoStack: { value: string; cursor: number }[] = [];
 const redoStack: { value: string; cursor: number }[] = [];
 
@@ -229,7 +234,8 @@ function focusInput() {
     if (nvimEnabled && mode === "normal") {
       setCaret(input.selectionStart ?? input.value.length);
     } else {
-      input.select();
+      const end = input.value.length;
+      setSelectionSilently(end, end);
     }
   });
 }
@@ -377,6 +383,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 type HistoryEntry = { question: string; at: number };
 let history: HistoryEntry[] = [];
 let bottomDraft = "";
+let erasedDraft: string | null = null;
 let forks: string[] = [];
 let navCursor = 0;
 
@@ -387,6 +394,7 @@ function pruneHistory() {
 
 function resetNavigation() {
   bottomDraft = "";
+  erasedDraft = null;
   forks = [];
   navCursor = 0;
 }
@@ -429,7 +437,21 @@ function setNav(cursor: number) {
 }
 
 function navigate(delta: number) {
+  if (navCursor === 0 && delta < 0) {
+    if (input.value !== "") {
+      erasedDraft = input.value;
+      bottomDraft = "";
+      setNav(0);
+    }
+    return;
+  }
   if (navCursor === 0 && delta > 0) {
+    if (erasedDraft !== null) {
+      bottomDraft = erasedDraft;
+      erasedDraft = null;
+      setNav(0);
+      return;
+    }
     pruneHistory();
   }
   if (navCursor >= 1 && navCursor <= forks.length && forks[navCursor - 1].trim() === "") {
@@ -458,6 +480,7 @@ input.addEventListener("input", () => {
   const value = input.value;
   if (navCursor <= 0) {
     bottomDraft = value;
+    erasedDraft = null;
     return;
   }
   if (navCursor <= forks.length) {
@@ -469,17 +492,27 @@ input.addEventListener("input", () => {
   navCursor = 1;
 });
 
-input.addEventListener("mouseup", () => {
-  if (!nvimEnabled || mode === "insert" || programmaticSelection) return;
+document.addEventListener("selectionchange", () => {
+  if (!nvimEnabled || document.activeElement !== input) return;
+  const valueChanged = input.value !== lastSelValue;
+  lastSelValue = input.value;
   const start = input.selectionStart ?? 0;
   const end = input.selectionEnd ?? 0;
+  if (
+    lastSetSelection &&
+    lastSetSelection.start === start &&
+    lastSetSelection.end === end
+  ) {
+    return;
+  }
+  if (valueChanged) return;
   if (end > start) {
     visualAnchor = start;
-    visualCursor = Math.max(start, end - 1);
-    setMode("visual");
+    visualCursor = end - 1;
+    if (mode !== "visual") setMode("visual");
     paintVisual();
-  } else {
-    if (mode === "visual") setMode("normal");
+  } else if (mode !== "insert") {
+    setMode("normal");
     setCaret(start);
   }
 });
@@ -817,9 +850,8 @@ function updateModeBadge() {
 }
 
 function setSelectionSilently(start: number, end: number) {
-  programmaticSelection = true;
+  lastSetSelection = { start, end };
   input.setSelectionRange(start, end);
-  programmaticSelection = false;
 }
 
 function showEmptyCursor(show: boolean) {
@@ -909,21 +941,24 @@ function vimRedo() {
 
 function yankText(text: string) {
   vimRegister = text;
-  try {
-    void navigator.clipboard?.writeText(text);
-  } catch {
-    // clipboard write is best-effort; the internal register still works
-  }
+  void writeClipboard(text).catch(() => {});
 }
 
-function pasteRegister(after: boolean) {
-  if (!vimRegister) return;
+async function pasteRegister(after: boolean) {
+  let text = vimRegister;
+  try {
+    const clip = await readClipboard();
+    if (clip) text = clip;
+  } catch {
+    // clipboard read may be unavailable; the internal register still works
+  }
+  if (!text) return;
   recordUndo();
   const len = input.value.length;
   let at = input.selectionStart ?? 0;
   if (after && len > 0) at = Math.min(at + 1, len);
-  input.value = input.value.slice(0, at) + vimRegister + input.value.slice(at);
-  setCaret(at + vimRegister.length - 1);
+  input.value = input.value.slice(0, at) + text + input.value.slice(at);
+  setCaret(at + text.length - 1);
 }
 
 function deleteLine() {
@@ -1217,7 +1252,7 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
       return true;
     case "KeyP":
       event.preventDefault();
-      pasteRegister(!event.shiftKey);
+      void pasteRegister(!event.shiftKey);
       return true;
     case "KeyD":
       event.preventDefault();
@@ -1295,6 +1330,11 @@ function handleNvimVisual(event: KeyboardEvent): boolean {
   const hi = Math.max(visualAnchor, visualCursor);
   switch (event.code) {
     case "Escape":
+      event.preventDefault();
+      setMode("normal");
+      setCaret(visualCursor);
+      lastEscapeTime = Date.now();
+      return true;
     case "KeyV":
       event.preventDefault();
       setMode("normal");

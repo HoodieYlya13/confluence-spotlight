@@ -96,9 +96,9 @@ Settings → **Neovim mode** turns on a modal (Normal/Insert/Visual) keymap laye
 | `0` / `$` | Cursor to line start / end |
 | `x` | Delete the character under the cursor |
 | `dd` / `D` | Delete the whole line / to end of line |
-| `y` / `yy` / `Y` / `p` / `P` | Yank line / yank line / yank line / paste after / paste before |
+| `y` / `yy` / `Y` / `p` / `P` | Yank line / yank line / yank line / paste after / paste before (paste pulls from the system clipboard) |
 | `u` / `Ctrl+R` | Undo / redo |
-| `v` (or drag to select) | Visual mode — `h`/`l`/`0`/`$` extend, `y` yank, `d`/`x` delete, `c` change, `Esc` back |
+| `v` (or select with mouse/keyboard) | Visual mode — `h`/`l`/`0`/`$` extend, `y` yank, `d`/`x` delete, `c` change, `Esc` back |
 | Hold `Space` + `Shift` | Same as `⌘/Ctrl+Shift`: number the links (or Settings buttons). Once numbered, `Space + <digit>` opens (Shift optional); releasing `Space` commits |
 | `Space` + `j` / `k` | Scroll the answer |
 | `Space` + `,` | Toggle Settings |

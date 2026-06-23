@@ -1,7 +1,7 @@
 {
   "name": "confluence-spotlight",
   "private": true,
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Tauri-based desktop Spotlight command bar for the RBAC-enforced Confluence RAG MCP server.",
   "type": "module",
   "scripts": {
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-opener": "^2"
   },
   "devDependencies": {
