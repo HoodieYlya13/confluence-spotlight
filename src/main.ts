@@ -55,6 +55,7 @@ const statusText = el<HTMLSpanElement>("#status-text");
 const statusHint = el<HTMLSpanElement>("#status-hint");
 const answerEl = el<HTMLDivElement>("#answer");
 const modeBadge = el<HTMLSpanElement>("#mode-badge");
+const nvimCursor = el<HTMLSpanElement>("#nvim-cursor");
 const manageAccountBtn = el<HTMLButtonElement>("#manage-account-btn");
 const settingsBtn = el<HTMLButtonElement>("#settings-btn");
 
@@ -161,11 +162,19 @@ let nvimEnabled = false;
 let nvimOpenMode = "insert";
 let leaderCode = "Space";
 let normalCode = "Escape";
-let mode: "insert" | "normal" = "insert";
+let mode: "insert" | "normal" | "visual" = "insert";
 let spaceHeld = false;
 let lastJ = 0;
 let lastQ = 0;
+let lastD = 0;
+let lastY = 0;
 let lastEscapeTime = 0;
+let visualAnchor = 0;
+let visualCursor = 0;
+let vimRegister = "";
+let programmaticSelection = false;
+const undoStack: { value: string; cursor: number }[] = [];
+const redoStack: { value: string; cursor: number }[] = [];
 
 let recordingTarget: BindingName | null = null;
 let candidateAccel: string | null = null;
@@ -217,7 +226,11 @@ function asMessage(error: unknown): string {
 function focusInput() {
   window.requestAnimationFrame(() => {
     input.focus();
-    input.select();
+    if (nvimEnabled && mode === "normal") {
+      setCaret(input.selectionStart ?? input.value.length);
+    } else {
+      input.select();
+    }
   });
 }
 
@@ -391,9 +404,7 @@ function pushHistory(question: string) {
 
 function moveCursorEnd() {
   window.requestAnimationFrame(() => {
-    const end = input.value.length;
-    input.focus();
-    input.setSelectionRange(end, end);
+    setCaret(input.value.length);
   });
 }
 
@@ -456,6 +467,21 @@ input.addEventListener("input", () => {
   if (value === historyTextAt(navCursor) || value.trim() === "") return;
   forks.unshift(value);
   navCursor = 1;
+});
+
+input.addEventListener("mouseup", () => {
+  if (!nvimEnabled || mode === "insert" || programmaticSelection) return;
+  const start = input.selectionStart ?? 0;
+  const end = input.selectionEnd ?? 0;
+  if (end > start) {
+    visualAnchor = start;
+    visualCursor = Math.max(start, end - 1);
+    setMode("visual");
+    paintVisual();
+  } else {
+    if (mode === "visual") setMode("normal");
+    setCaret(start);
+  }
 });
 
 const MOD_TOKENS = new Set([
@@ -762,37 +788,161 @@ function maybeStartChordTimer(event: KeyboardEvent) {
   }, 300);
 }
 
-function setMode(next: "insert" | "normal") {
+function setMode(next: "insert" | "normal" | "visual") {
   mode = next;
+  const active = nvimEnabled && (next === "normal" || next === "visual");
+  input.classList.toggle("nvim-active", active);
+  if (next !== "visual") input.classList.remove("nvim-visual");
   updateModeBadge();
+  if (next === "normal") {
+    renderCursorAt(input.selectionStart ?? input.value.length);
+  } else {
+    input.classList.remove("nvim-block");
+    if (next !== "visual") showEmptyCursor(false);
+  }
 }
 
 function updateModeBadge() {
   if (!nvimEnabled) {
     modeBadge.hidden = true;
-    modeBadge.classList.remove("normal", "insert");
+    modeBadge.classList.remove("normal", "insert", "visual");
     return;
   }
   modeBadge.hidden = false;
-  modeBadge.textContent = mode === "normal" ? "NORMAL" : "INSERT";
+  modeBadge.textContent =
+    mode === "normal" ? "NORMAL" : mode === "visual" ? "VISUAL" : "INSERT";
   modeBadge.classList.toggle("normal", mode === "normal");
   modeBadge.classList.toggle("insert", mode === "insert");
+  modeBadge.classList.toggle("visual", mode === "visual");
+}
+
+function setSelectionSilently(start: number, end: number) {
+  programmaticSelection = true;
+  input.setSelectionRange(start, end);
+  programmaticSelection = false;
+}
+
+function showEmptyCursor(show: boolean) {
+  if (!show) {
+    nvimCursor.hidden = true;
+    return;
+  }
+  nvimCursor.style.left = `${input.offsetLeft}px`;
+  nvimCursor.style.top = `${input.offsetTop}px`;
+  nvimCursor.style.height = `${input.offsetHeight}px`;
+  nvimCursor.hidden = false;
+}
+
+function renderCursorAt(pos: number) {
+  const len = input.value.length;
+  if (nvimEnabled && mode === "normal") {
+    if (len === 0) {
+      input.classList.remove("nvim-block");
+      setSelectionSilently(0, 0);
+      showEmptyCursor(true);
+      return;
+    }
+    const c = Math.max(0, Math.min(pos, len - 1));
+    input.classList.add("nvim-block");
+    showEmptyCursor(false);
+    setSelectionSilently(c, c + 1);
+  } else {
+    input.classList.remove("nvim-block");
+    showEmptyCursor(false);
+    const c = Math.max(0, Math.min(pos, len));
+    setSelectionSilently(c, c);
+  }
 }
 
 function setCaret(pos: number) {
-  const clamped = Math.max(0, Math.min(pos, input.value.length));
   input.focus();
-  input.setSelectionRange(clamped, clamped);
+  renderCursorAt(pos);
+}
+
+function paintVisual() {
+  const len = input.value.length;
+  if (len === 0) {
+    setMode("normal");
+    setCaret(0);
+    return;
+  }
+  input.focus();
+  visualAnchor = Math.max(0, Math.min(visualAnchor, len - 1));
+  visualCursor = Math.max(0, Math.min(visualCursor, len - 1));
+  const lo = Math.min(visualAnchor, visualCursor);
+  const hi = Math.max(visualAnchor, visualCursor);
+  input.classList.remove("nvim-block");
+  input.classList.add("nvim-visual");
+  showEmptyCursor(false);
+  setSelectionSilently(lo, hi + 1);
+}
+
+function enterVisual(anchor: number) {
+  if (input.value.length === 0) return;
+  visualAnchor = anchor;
+  visualCursor = anchor;
+  setMode("visual");
+  paintVisual();
+}
+
+function recordUndo() {
+  undoStack.push({ value: input.value, cursor: input.selectionStart ?? 0 });
+  if (undoStack.length > 100) undoStack.shift();
+  redoStack.length = 0;
+}
+
+function vimUndo() {
+  const prev = undoStack.pop();
+  if (!prev) return;
+  redoStack.push({ value: input.value, cursor: input.selectionStart ?? 0 });
+  input.value = prev.value;
+  setCaret(prev.cursor);
+}
+
+function vimRedo() {
+  const next = redoStack.pop();
+  if (!next) return;
+  undoStack.push({ value: input.value, cursor: input.selectionStart ?? 0 });
+  input.value = next.value;
+  setCaret(next.cursor);
+}
+
+function yankText(text: string) {
+  vimRegister = text;
+  try {
+    void navigator.clipboard?.writeText(text);
+  } catch {
+    // clipboard write is best-effort; the internal register still works
+  }
+}
+
+function pasteRegister(after: boolean) {
+  if (!vimRegister) return;
+  recordUndo();
+  const len = input.value.length;
+  let at = input.selectionStart ?? 0;
+  if (after && len > 0) at = Math.min(at + 1, len);
+  input.value = input.value.slice(0, at) + vimRegister + input.value.slice(at);
+  setCaret(at + vimRegister.length - 1);
+}
+
+function deleteLine() {
+  recordUndo();
+  yankText(input.value);
+  input.value = "";
+  setCaret(0);
 }
 
 function enterInsert(pos: number) {
+  recordUndo();
   setMode("insert");
   setCaret(pos);
 }
 
 function enterNormal() {
+  const pos = input.selectionStart ?? input.value.length;
   setMode("normal");
-  input.focus();
+  setCaret(pos - 1);
 }
 
 function deleteCharBeforeCaret() {
@@ -806,8 +956,9 @@ function deleteCharBeforeCaret() {
 function deleteCharAtCaret() {
   const p = input.selectionStart ?? 0;
   if (p < input.value.length) {
+    recordUndo();
     input.value = input.value.slice(0, p) + input.value.slice(p + 1);
-    input.setSelectionRange(p, p);
+    setCaret(p);
   }
 }
 
@@ -966,10 +1117,26 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
     return true;
   }
 
+  if (
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    event.code === "KeyR"
+  ) {
+    event.preventDefault();
+    vimRedo();
+    return true;
+  }
+
   if (event.metaKey || event.ctrlKey || event.altKey) return false;
 
   if (activeView === "settings") {
-    if (event.code === "KeyH" || event.code === "ArrowLeft" || event.code === "Escape") {
+    if (
+      event.code === "KeyH" ||
+      event.code === "ArrowLeft" ||
+      event.code === "Escape" ||
+      event.code === "Backspace"
+    ) {
       event.preventDefault();
       backToConversation();
       return true;
@@ -1000,6 +1167,7 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
       return true;
     case "KeyH":
     case "ArrowLeft":
+    case "Backspace":
       event.preventDefault();
       setCaret(caret - 1);
       return true;
@@ -1033,6 +1201,41 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
     case "KeyX":
       event.preventDefault();
       deleteCharAtCaret();
+      return true;
+    case "KeyV":
+      event.preventDefault();
+      enterVisual(caret);
+      return true;
+    case "KeyY":
+      event.preventDefault();
+      if (event.shiftKey || Date.now() - lastY < 250) {
+        lastY = 0;
+        yankText(input.value);
+      } else {
+        lastY = Date.now();
+      }
+      return true;
+    case "KeyP":
+      event.preventDefault();
+      pasteRegister(!event.shiftKey);
+      return true;
+    case "KeyD":
+      event.preventDefault();
+      if (event.shiftKey) {
+        recordUndo();
+        yankText(input.value.slice(caret));
+        input.value = input.value.slice(0, caret);
+        setCaret(caret);
+      } else if (Date.now() - lastD < 250) {
+        lastD = 0;
+        deleteLine();
+      } else {
+        lastD = Date.now();
+      }
+      return true;
+    case "KeyU":
+      event.preventDefault();
+      vimUndo();
       return true;
     case "KeyQ":
       event.preventDefault();
@@ -1072,7 +1275,83 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
 function handleNvim(event: KeyboardEvent): boolean {
   if (!nvimEnabled) return false;
   if (mode === "insert") return handleNvimInsert(event);
+  if (mode === "visual") return handleNvimVisual(event);
   return handleNvimNormal(event);
+}
+
+function handleNvimVisual(event: KeyboardEvent): boolean {
+  if (event.metaKey || event.altKey) return false;
+  if (event.ctrlKey) {
+    if (event.code === "BracketLeft" || event.code === "KeyC") {
+      event.preventDefault();
+      setMode("normal");
+      setCaret(visualCursor);
+      return true;
+    }
+    return false;
+  }
+  const len = input.value.length;
+  const lo = Math.min(visualAnchor, visualCursor);
+  const hi = Math.max(visualAnchor, visualCursor);
+  switch (event.code) {
+    case "Escape":
+    case "KeyV":
+      event.preventDefault();
+      setMode("normal");
+      setCaret(visualCursor);
+      return true;
+    case "KeyH":
+    case "ArrowLeft":
+    case "Backspace":
+      event.preventDefault();
+      visualCursor = Math.max(0, visualCursor - 1);
+      paintVisual();
+      return true;
+    case "KeyL":
+    case "ArrowRight":
+      event.preventDefault();
+      visualCursor = Math.min(len - 1, visualCursor + 1);
+      paintVisual();
+      return true;
+    case "Digit0":
+      event.preventDefault();
+      visualCursor = 0;
+      paintVisual();
+      return true;
+    case "Digit4":
+      event.preventDefault();
+      if (event.shiftKey) {
+        visualCursor = len - 1;
+        paintVisual();
+      }
+      return true;
+    case "KeyY":
+      event.preventDefault();
+      yankText(input.value.slice(lo, hi + 1));
+      setMode("normal");
+      setCaret(lo);
+      return true;
+    case "KeyD":
+    case "KeyX":
+      event.preventDefault();
+      recordUndo();
+      yankText(input.value.slice(lo, hi + 1));
+      input.value = input.value.slice(0, lo) + input.value.slice(hi + 1);
+      setMode("normal");
+      setCaret(lo);
+      return true;
+    case "KeyC":
+      event.preventDefault();
+      recordUndo();
+      yankText(input.value.slice(lo, hi + 1));
+      input.value = input.value.slice(0, lo) + input.value.slice(hi + 1);
+      setMode("insert");
+      setCaret(lo);
+      return true;
+    default:
+      event.preventDefault();
+      return true;
+  }
 }
 
 function refreshNvimUi() {

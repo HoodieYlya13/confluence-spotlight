@@ -85,21 +85,25 @@ The search box keeps the caret while you click around the bar, so you can start 
 
 ### Neovim mode
 
-Settings → **Neovim mode** turns on a modal (Normal/Insert) keymap layered over the bar; it's off by default and the base `⌘/Ctrl` shortcuts keep working either way. A `NORMAL`/`INSERT` badge shows the mode, and **Open in** chooses which mode each summon starts in (Insert by default). The **leader** key (default `Space`) and the **Enter-Normal** key (default `Esc`) are remappable in Settings; the motions are fixed vim conventions.
+Settings → **Neovim mode** turns on a modal (Normal/Insert/Visual) keymap layered over the bar; it's off by default and the base `⌘/Ctrl` shortcuts keep working either way. A `NORMAL`/`INSERT`/`VISUAL` badge shows the mode, the Normal-mode cursor is a real block (and stays on the last character, like Neovim), and **Open in** chooses which mode each summon starts in (Insert by default). The **leader** key (default `Space`) and the **Enter-Normal** key (default `Esc`) are remappable in Settings; the motions are fixed vim conventions.
 
 | Keys | Action |
 |---|---|
 | `Esc` / `Ctrl+C` / `Ctrl+[` / `jj` | Enter Normal mode (also after every `Enter`) |
 | `i` / `a` / `I` / `A` | Enter Insert at caret / after / line start / line end |
-| `h` / `l` | Move the caret left / right |
+| `h` / `l` / `Backspace` | Move the cursor left / right (`Backspace` = left, never deletes; clamped to the last char) |
 | `k` / `j` | Step history older / newer |
-| `0` / `$` | Caret to line start / end |
-| `x` | Delete the character under the caret |
+| `0` / `$` | Cursor to line start / end |
+| `x` | Delete the character under the cursor |
+| `dd` / `D` | Delete the whole line / to end of line |
+| `y` / `yy` / `Y` / `p` / `P` | Yank line / yank line / yank line / paste after / paste before |
+| `u` / `Ctrl+R` | Undo / redo |
+| `v` (or drag to select) | Visual mode — `h`/`l`/`0`/`$` extend, `y` yank, `d`/`x` delete, `c` change, `Esc` back |
 | Hold `Space` + `Shift` | Same as `⌘/Ctrl+Shift`: number the links (or Settings buttons). Once numbered, `Space + <digit>` opens (Shift optional); releasing `Space` commits |
 | `Space` + `j` / `k` | Scroll the answer |
 | `Space` + `,` | Toggle Settings |
 | `Space` + `q` or `qq` | Close the window |
-| In Settings: `h` / `Esc` | Back to the conversation (`j` / `k` scroll) |
+| In Settings: `h` / `Esc` / `Backspace` | Back to the conversation (`j` / `k` scroll) |
 | In Settings: `Space` + `Shift` + `Q` ×2 | Log out (confirm within ~2.5 s) |
 
 (`jj` to leave Insert means you can't quickly type a literal "jj" — the usual vim trade-off.)
