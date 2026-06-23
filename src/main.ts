@@ -476,7 +476,7 @@ function historyNext() {
   navigate(-1);
 }
 
-input.addEventListener("input", () => {
+function recordCurrentEdit() {
   const value = input.value;
   if (navCursor <= 0) {
     bottomDraft = value;
@@ -490,7 +490,9 @@ input.addEventListener("input", () => {
   if (value === historyTextAt(navCursor) || value.trim() === "") return;
   forks.unshift(value);
   navCursor = 1;
-});
+}
+
+input.addEventListener("input", recordCurrentEdit);
 
 document.addEventListener("selectionchange", () => {
   if (!nvimEnabled || document.activeElement !== input) return;
@@ -929,6 +931,7 @@ function vimUndo() {
   redoStack.push({ value: input.value, cursor: input.selectionStart ?? 0 });
   input.value = prev.value;
   setCaret(prev.cursor);
+  recordCurrentEdit();
 }
 
 function vimRedo() {
@@ -937,6 +940,7 @@ function vimRedo() {
   undoStack.push({ value: input.value, cursor: input.selectionStart ?? 0 });
   input.value = next.value;
   setCaret(next.cursor);
+  recordCurrentEdit();
 }
 
 function yankText(text: string) {
@@ -959,6 +963,7 @@ async function pasteRegister(after: boolean) {
   if (after && len > 0) at = Math.min(at + 1, len);
   input.value = input.value.slice(0, at) + text + input.value.slice(at);
   setCaret(at + text.length - 1);
+  recordCurrentEdit();
 }
 
 function deleteLine() {
@@ -966,6 +971,7 @@ function deleteLine() {
   yankText(input.value);
   input.value = "";
   setCaret(0);
+  recordCurrentEdit();
 }
 
 function enterInsert(pos: number) {
@@ -985,6 +991,7 @@ function deleteCharBeforeCaret() {
   if (p > 0) {
     input.value = input.value.slice(0, p - 1) + input.value.slice(p);
     input.setSelectionRange(p - 1, p - 1);
+    recordCurrentEdit();
   }
 }
 
@@ -994,6 +1001,7 @@ function deleteCharAtCaret() {
     recordUndo();
     input.value = input.value.slice(0, p) + input.value.slice(p + 1);
     setCaret(p);
+    recordCurrentEdit();
   }
 }
 
@@ -1261,6 +1269,7 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
         yankText(input.value.slice(caret));
         input.value = input.value.slice(0, caret);
         setCaret(caret);
+        recordCurrentEdit();
       } else if (Date.now() - lastD < 250) {
         lastD = 0;
         deleteLine();
@@ -1379,6 +1388,7 @@ function handleNvimVisual(event: KeyboardEvent): boolean {
       input.value = input.value.slice(0, lo) + input.value.slice(hi + 1);
       setMode("normal");
       setCaret(lo);
+      recordCurrentEdit();
       return true;
     case "KeyC":
       event.preventDefault();
@@ -1387,6 +1397,7 @@ function handleNvimVisual(event: KeyboardEvent): boolean {
       input.value = input.value.slice(0, lo) + input.value.slice(hi + 1);
       setMode("insert");
       setCaret(lo);
+      recordCurrentEdit();
       return true;
     default:
       event.preventDefault();
