@@ -52,6 +52,7 @@ struct Settings {
     nvim_open_mode: Option<String>,
     nvim_leader: Option<String>,
     nvim_normal: Option<String>,
+    follow_mouse: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -103,6 +104,7 @@ struct SessionView {
     nvim_open_mode: String,
     nvim_leader: String,
     nvim_normal: String,
+    follow_mouse: bool,
     app_version: String,
 }
 
@@ -195,6 +197,7 @@ fn session_view(state: &AppState) -> SessionView {
                 .unwrap_or_else(|| DEFAULT_NVIM_NORMAL.to_string()),
         )
     };
+    let follow_mouse = state.settings.lock().unwrap().follow_mouse.unwrap_or(true);
     let auth = state.auth.lock().unwrap();
     let role = auth.as_ref().map(|auth| auth.role.clone());
     let role_label = role
@@ -219,6 +222,7 @@ fn session_view(state: &AppState) -> SessionView {
         nvim_open_mode,
         nvim_leader,
         nvim_normal,
+        follow_mouse,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
     }
 }
@@ -401,6 +405,19 @@ fn set_nvim_open_mode(
 }
 
 #[tauri::command]
+fn set_follow_mouse(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<SessionView, String> {
+    {
+        let mut settings = state.settings.lock().unwrap();
+        settings.follow_mouse = Some(enabled);
+        save_settings(&state.settings_path, &settings);
+    }
+    Ok(session_view(state.inner()))
+}
+
+#[tauri::command]
 async fn ask_question(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
@@ -505,8 +522,23 @@ fn deep_link_redirect_uri(app: &AppHandle) -> String {
     format!("{scheme}://auth")
 }
 
-fn fill_active_monitor(window: &tauri::WebviewWindow) {
-    if let Ok(Some(monitor)) = window.current_monitor() {
+fn follow_mouse_enabled(app: &AppHandle) -> bool {
+    app.try_state::<AppState>()
+        .map(|state| state.settings.lock().unwrap().follow_mouse.unwrap_or(true))
+        .unwrap_or(true)
+}
+
+fn fill_active_monitor(window: &tauri::WebviewWindow, follow_mouse: bool) {
+    let monitor = if follow_mouse {
+        window
+            .cursor_position()
+            .ok()
+            .and_then(|pos| window.monitor_from_point(pos.x, pos.y).ok().flatten())
+            .or_else(|| window.current_monitor().ok().flatten())
+    } else {
+        window.current_monitor().ok().flatten()
+    };
+    if let Some(monitor) = monitor {
         let size = monitor.size();
         let pos = monitor.position();
         let _ = window.set_size(tauri::Size::Physical(*size));
@@ -523,7 +555,7 @@ fn show_window(app: &AppHandle) {
     };
 
     if let Some(window) = app.get_webview_window("main") {
-        fill_active_monitor(&window);
+        fill_active_monitor(&window, follow_mouse_enabled(app));
     }
 
     panel.show_and_make_key();
@@ -533,7 +565,7 @@ fn show_window(app: &AppHandle) {
 #[cfg(not(target_os = "macos"))]
 fn show_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        fill_active_monitor(&window);
+        fill_active_monitor(&window, follow_mouse_enabled(app));
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -950,6 +982,7 @@ pub fn run() {
             set_binding,
             set_nvim_mode,
             set_nvim_open_mode,
+            set_follow_mouse,
             hide_window,
             show_window_command,
             install_update,

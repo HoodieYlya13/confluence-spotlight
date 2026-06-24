@@ -21,6 +21,7 @@ type SessionView = {
   nvim_open_mode: string;
   nvim_leader: string;
   nvim_normal: string;
+  follow_mouse: boolean;
   app_version: string;
 };
 type AnswerPayload = { answer: string; role: string };
@@ -63,6 +64,7 @@ const nvimCursor = el<HTMLSpanElement>("#nvim-cursor");
 const manageAccountBtn = el<HTMLButtonElement>("#manage-account-btn");
 const settingsBtn = el<HTMLButtonElement>("#settings-btn");
 
+const followMouseToggle = el<HTMLButtonElement>("#follow-mouse-toggle");
 const nvimToggle = el<HTMLButtonElement>("#nvim-toggle");
 const nvimOptions = el<HTMLDivElement>("#nvim-options");
 const nvimOpenInsert = el<HTMLButtonElement>("#nvim-open-insert");
@@ -162,6 +164,7 @@ let scrollKeys = "CmdOrCtrl+Down";
 let linkKeys = "CmdOrCtrl+Shift+Down";
 let settingsKeys = "CmdOrCtrl+,";
 
+let followMouse = true;
 let nvimEnabled = false;
 let nvimOpenMode = "insert";
 let leaderCode = "Space";
@@ -250,6 +253,7 @@ function applyBindings(session: SessionView) {
   scrollKeys = session.scroll_keys;
   linkKeys = session.link_keys;
   settingsKeys = session.settings_keys;
+  followMouse = session.follow_mouse;
   nvimEnabled = session.nvim_mode;
   nvimOpenMode = session.nvim_open_mode;
   leaderCode = session.nvim_leader;
@@ -286,7 +290,7 @@ async function renderSession(): Promise<SessionView> {
 function resetLogin() {
   connectBtn.hidden = false;
   connectBtn.disabled = false;
-  connectBtn.textContent = "Connect with CERN SSO";
+  connectBtn.textContent = "Connect with HY13 Passkey SSO";
   loginWaiting.hidden = true;
   loginError.hidden = true;
 }
@@ -1453,6 +1457,23 @@ function refreshNvimUi() {
   updateModeBadge();
 }
 
+function refreshFollowMouseUi() {
+  followMouseToggle.textContent = followMouse ? "On" : "Off";
+  followMouseToggle.classList.toggle("active", followMouse);
+}
+
+async function toggleFollowMouse() {
+  try {
+    const session = await invoke<SessionView>("set_follow_mouse", {
+      enabled: !followMouse,
+    });
+    applyBindings(session);
+    refreshFollowMouseUi();
+  } catch (error) {
+    console.error("Failed to toggle follow-mouse:", error);
+  }
+}
+
 async function toggleNvim() {
   try {
     const session = await invoke<SessionView>("set_nvim_mode", {
@@ -1688,6 +1709,7 @@ function openSettings() {
     rows[name].cancel.hidden = true;
   }
   updateStatus.hidden = true;
+  refreshFollowMouseUi();
   refreshNvimUi();
   showView("settings");
 }
@@ -1931,6 +1953,7 @@ manageAccountBtn.addEventListener("click", () => {
   if (accountUrl) void openUrl(accountUrl);
 });
 checkUpdateBtn.addEventListener("click", () => void checkForUpdates());
+followMouseToggle.addEventListener("click", () => void toggleFollowMouse());
 nvimToggle.addEventListener("click", () => void toggleNvim());
 nvimOpenInsert.addEventListener("click", () => void setOpenMode("insert"));
 nvimOpenNormal.addEventListener("click", () => void setOpenMode("normal"));
