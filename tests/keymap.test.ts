@@ -64,6 +64,13 @@ beforeEach(() => {
   mocks.writeText.mockResolvedValue(undefined);
 });
 
+async function normalWith(text: string) {
+  const app = await loadApp(session);
+  typeText(app.input, text);
+  press("Escape"); // enter Normal mode
+  return app;
+}
+
 describe("nvim normal-mode commands", () => {
   it("jj from insert returns to Normal without leaving a stray j", async () => {
     const app = await loadApp(session);
@@ -75,17 +82,13 @@ describe("nvim normal-mode commands", () => {
   });
 
   it("x deletes the character under the cursor", async () => {
-    const app = await loadApp(session);
-    typeText(app.input, "hello");
-    press("Escape"); // Normal, caret on last char
+    const app = await normalWith("hello");
     press("KeyX");
     expect(app.input.value).toBe("hell");
   });
 
   it("dd deletes the whole line", async () => {
-    const app = await loadApp(session);
-    typeText(app.input, "hello");
-    press("Escape");
+    const app = await normalWith("hello");
     press("KeyD");
     press("KeyD"); // within 250ms
     expect(app.input.value).toBe("");
@@ -95,9 +98,7 @@ describe("nvim normal-mode commands", () => {
 describe("nvim visual-mode delete/change (deleteVisualRange)", () => {
   // "hello" with the first three chars ("hel") selected in Visual mode.
   async function selectHel() {
-    const app = await loadApp(session);
-    typeText(app.input, "hello");
-    press("Escape");
+    const app = await normalWith("hello");
     press("Digit0"); // caret to start
     press("KeyV"); // enter Visual at index 0
     press("KeyL"); // extend to index 1
@@ -144,5 +145,100 @@ describe("link-mode letter activation (activateLinkKey)", () => {
       role: "ATS_CORE_LEAD",
     });
     void app;
+  });
+});
+
+describe("leader chord (the spaceHeld branch)", () => {
+  it("Space then , opens Settings", async () => {
+    const app = await loadApp(session);
+    press("Escape"); // Normal
+    press("Space"); // leader held
+    press("Comma");
+    const settingsView = app.doc.querySelector("#settings-view") as HTMLElement;
+    expect(settingsView.hidden).toBe(false);
+  });
+
+  it("Space then q hides the window", async () => {
+    await loadApp(session);
+    press("Escape");
+    press("Space");
+    press("KeyQ");
+    expect(mocks.invoke).toHaveBeenCalledWith("hide_window");
+  });
+});
+
+describe("settings-view Normal nav (the settings branch)", () => {
+  it("h returns to the conversation", async () => {
+    const app = await loadApp(session);
+    (app.doc.querySelector("#settings-btn") as HTMLButtonElement).click();
+    const settingsView = app.doc.querySelector("#settings-view") as HTMLElement;
+    expect(settingsView.hidden).toBe(false);
+    press("KeyH"); // back
+    const searchView = app.doc.querySelector("#search-view") as HTMLElement;
+    expect(searchView.hidden).toBe(false);
+    expect(settingsView.hidden).toBe(true);
+  });
+});
+
+describe("leader-key recorder (captureHotkey)", () => {
+  it("Escape cancels recording instead of being captured as the leader", async () => {
+    const app = await loadApp(session);
+    (app.doc.querySelector("#settings-btn") as HTMLButtonElement).click();
+    const record = app.doc.querySelector("#leader-record") as HTMLButtonElement;
+    record.click(); // enter recording
+    expect(record.classList.contains("recording")).toBe(true);
+
+    press("Escape", { key: "Escape" });
+
+    expect(record.classList.contains("recording")).toBe(false);
+    expect(
+      (app.doc.querySelector("#leader-save") as HTMLElement).hidden,
+    ).toBe(true);
+    expect(mocks.invoke).not.toHaveBeenCalledWith(
+      "set_binding",
+      expect.objectContaining({ accelerator: "Escape" }),
+    );
+  });
+});
+
+describe("normal-mode motions and edits (the command switch)", () => {
+  it("i enters Insert mode", async () => {
+    const app = await loadApp(session);
+    press("Escape");
+    press("KeyI");
+    expect(app.modeBadge.textContent).toBe("INSERT");
+  });
+
+  it("0 and $ move the caret to start and end", async () => {
+    const app = await normalWith("hello");
+    press("Digit0");
+    expect(app.input.selectionStart).toBe(0);
+    press("Digit4", { shift: true });
+    expect(app.input.selectionStart).toBe(4); // block cursor clamps to last char
+  });
+
+  it("u undoes an x deletion", async () => {
+    const app = await normalWith("hello");
+    press("KeyX"); // delete char under cursor -> "hell"
+    expect(app.input.value).toBe("hell");
+    press("KeyU"); // undo
+    expect(app.input.value).toBe("hello");
+  });
+
+  it("yy then p pastes the yanked register", async () => {
+    const app = await normalWith("ab");
+    press("KeyY");
+    press("KeyY"); // yy -> register "ab"
+    press("KeyP"); // paste after the caret
+    await vi.waitFor(() => {
+      if (app.input.value !== "abab") throw new Error(app.input.value);
+    });
+  });
+
+  it("two Escapes hide the window", async () => {
+    await loadApp(session);
+    press("Escape"); // Insert -> Normal, primes the double-Esc
+    press("Escape"); // Normal -> hide
+    expect(mocks.invoke).toHaveBeenCalledWith("hide_window");
   });
 });

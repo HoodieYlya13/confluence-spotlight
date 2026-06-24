@@ -1097,117 +1097,97 @@ function handleNvimInsert(event: KeyboardEvent): boolean {
   return false;
 }
 
-function handleNvimNormal(event: KeyboardEvent): boolean {
-  if (event.code === "Space") {
-    event.preventDefault();
-    spaceHeld = true;
-    if (event.shiftKey) maybeStartChordTimer(event);
-    return true;
-  }
-
-  if (spaceHeld) {
-    event.preventDefault();
-    if (linkMode) {
-      const digit = digitOf(event);
-      if (digit !== null) {
-        pressLinkDigit(digit);
-        return true;
-      }
-      if (activateLinkKey(event)) return true;
-    }
-    if (event.shiftKey) {
-      if (activateLinkKey(event)) return true;
-      const digit = digitOf(event);
-      if (digit !== null) {
-        pressLinkDigit(digit);
-        return true;
-      }
-      if (event.code === "KeyJ" || event.code === "ArrowDown") {
-        pageToLinks(1);
-        return true;
-      }
-      if (event.code === "KeyK" || event.code === "ArrowUp") {
-        pageToLinks(-1);
-        return true;
-      }
-      maybeStartChordTimer(event);
+function handleLeaderChord(event: KeyboardEvent): boolean {
+  event.preventDefault();
+  if (linkMode) {
+    const digit = digitOf(event);
+    if (digit !== null) {
+      pressLinkDigit(digit);
       return true;
     }
-    if (event.code === "Comma") {
-      event.preventDefault();
-      toggleSettings();
-      return true;
-    }
-    if (activeView === "settings") {
-      if (event.code === "KeyJ") {
-        event.preventDefault();
-        scrollContainer(settingsBody, 1);
-        return true;
-      }
-      if (event.code === "KeyK") {
-        event.preventDefault();
-        scrollContainer(settingsBody, -1);
-        return true;
-      }
-    } else {
-      if (event.code === "KeyJ") {
-        event.preventDefault();
-        scrollAnswer(1);
-        return true;
-      }
-      if (event.code === "KeyK") {
-        event.preventDefault();
-        scrollAnswer(-1);
-        return true;
-      }
-      if (event.code === "KeyQ") {
-        event.preventDefault();
-        void invoke("hide_window");
-        return true;
-      }
-    }
-    event.preventDefault();
-    return true;
+    if (activateLinkKey(event)) return true;
   }
-
-  if (
-    event.ctrlKey &&
-    !event.metaKey &&
-    !event.altKey &&
-    event.code === "KeyR"
-  ) {
-    event.preventDefault();
-    vimRedo();
-    return true;
-  }
-
-  if (event.metaKey || event.ctrlKey || event.altKey) return false;
-
-  if (activeView === "settings") {
-    if (
-      event.code === "KeyH" ||
-      event.code === "ArrowLeft" ||
-      event.code === "Escape" ||
-      event.code === "Backspace"
-    ) {
-      event.preventDefault();
-      backToConversation();
+  if (event.shiftKey) {
+    if (activateLinkKey(event)) return true;
+    const digit = digitOf(event);
+    if (digit !== null) {
+      pressLinkDigit(digit);
       return true;
     }
     if (event.code === "KeyJ" || event.code === "ArrowDown") {
+      pageToLinks(1);
+      return true;
+    }
+    if (event.code === "KeyK" || event.code === "ArrowUp") {
+      pageToLinks(-1);
+      return true;
+    }
+    maybeStartChordTimer(event);
+    return true;
+  }
+  if (event.code === "Comma") {
+    event.preventDefault();
+    toggleSettings();
+    return true;
+  }
+  if (activeView === "settings") {
+    if (event.code === "KeyJ") {
       event.preventDefault();
       scrollContainer(settingsBody, 1);
       return true;
     }
-    if (event.code === "KeyK" || event.code === "ArrowUp") {
+    if (event.code === "KeyK") {
       event.preventDefault();
       scrollContainer(settingsBody, -1);
       return true;
     }
+  } else {
+    if (event.code === "KeyJ") {
+      event.preventDefault();
+      scrollAnswer(1);
+      return true;
+    }
+    if (event.code === "KeyK") {
+      event.preventDefault();
+      scrollAnswer(-1);
+      return true;
+    }
+    if (event.code === "KeyQ") {
+      event.preventDefault();
+      void invoke("hide_window");
+      return true;
+    }
+  }
+  event.preventDefault();
+  return true;
+}
+
+function handleNormalSettings(event: KeyboardEvent): boolean {
+  if (
+    event.code === "KeyH" ||
+    event.code === "ArrowLeft" ||
+    event.code === "Escape" ||
+    event.code === "Backspace"
+  ) {
     event.preventDefault();
+    backToConversation();
     return true;
   }
+  if (event.code === "KeyJ" || event.code === "ArrowDown") {
+    event.preventDefault();
+    scrollContainer(settingsBody, 1);
+    return true;
+  }
+  if (event.code === "KeyK" || event.code === "ArrowUp") {
+    event.preventDefault();
+    scrollContainer(settingsBody, -1);
+    return true;
+  }
+  event.preventDefault();
+  return true;
+}
 
+function handleNormalMotion(event: KeyboardEvent): boolean {
   const caret = input.selectionStart ?? input.value.length;
   switch (event.code) {
     case "KeyI":
@@ -1300,7 +1280,7 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
         lastQ = Date.now();
       }
       return true;
-    case "Escape":
+    case "Escape": {
       event.preventDefault();
       if (linkMode) {
         exitLinkMode();
@@ -1314,6 +1294,7 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
         lastEscapeTime = now;
       }
       return true;
+    }
     case "Enter":
     case "NumpadEnter":
       return false;
@@ -1324,6 +1305,34 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
       }
       return false;
   }
+}
+
+function handleNvimNormal(event: KeyboardEvent): boolean {
+  if (event.code === "Space") {
+    event.preventDefault();
+    spaceHeld = true;
+    if (event.shiftKey) maybeStartChordTimer(event);
+    return true;
+  }
+
+  if (spaceHeld) return handleLeaderChord(event);
+
+  if (
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    event.code === "KeyR"
+  ) {
+    event.preventDefault();
+    vimRedo();
+    return true;
+  }
+
+  if (event.metaKey || event.ctrlKey || event.altKey) return false;
+
+  if (activeView === "settings") return handleNormalSettings(event);
+
+  return handleNormalMotion(event);
 }
 
 function handleNvim(event: KeyboardEvent): boolean {
@@ -1604,7 +1613,7 @@ function captureHotkey(event: KeyboardEvent) {
   if (!recordingTarget) return;
   const single = singleKeyBindings.has(recordingTarget);
 
-  if (!single && event.key === "Escape") {
+  if (event.key === "Escape") {
     void exitRecording();
     return;
   }
