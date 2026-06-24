@@ -40,7 +40,6 @@ const DEFAULT_LINK_KEYS: &str = "CmdOrCtrl+Shift+Down";
 const DEFAULT_SETTINGS_KEYS: &str = "CmdOrCtrl+,";
 const DEFAULT_NVIM_OPEN_MODE: &str = "insert";
 const DEFAULT_NVIM_LEADER: &str = "Space";
-const DEFAULT_NVIM_NORMAL: &str = "Escape";
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct Settings {
@@ -51,7 +50,6 @@ struct Settings {
     nvim_mode: Option<bool>,
     nvim_open_mode: Option<String>,
     nvim_leader: Option<String>,
-    nvim_normal: Option<String>,
     follow_mouse: Option<bool>,
 }
 
@@ -103,7 +101,6 @@ struct SessionView {
     nvim_mode: bool,
     nvim_open_mode: String,
     nvim_leader: String,
-    nvim_normal: String,
     follow_mouse: bool,
     app_version: String,
 }
@@ -179,7 +176,7 @@ fn session_view(state: &AppState) -> SessionView {
                 .unwrap_or_else(|| DEFAULT_SETTINGS_KEYS.to_string()),
         )
     };
-    let (nvim_mode, nvim_open_mode, nvim_leader, nvim_normal) = {
+    let (nvim_mode, nvim_open_mode, nvim_leader) = {
         let settings = state.settings.lock().unwrap();
         (
             settings.nvim_mode.unwrap_or(false),
@@ -191,10 +188,6 @@ fn session_view(state: &AppState) -> SessionView {
                 .nvim_leader
                 .clone()
                 .unwrap_or_else(|| DEFAULT_NVIM_LEADER.to_string()),
-            settings
-                .nvim_normal
-                .clone()
-                .unwrap_or_else(|| DEFAULT_NVIM_NORMAL.to_string()),
         )
     };
     let follow_mouse = state.settings.lock().unwrap().follow_mouse.unwrap_or(true);
@@ -221,7 +214,6 @@ fn session_view(state: &AppState) -> SessionView {
         nvim_mode,
         nvim_open_mode,
         nvim_leader,
-        nvim_normal,
         follow_mouse,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
     }
@@ -369,7 +361,6 @@ fn set_binding(
             "links" => settings.link_keys = Some(trimmed),
             "settings" => settings.settings_keys = Some(trimmed),
             "leader" => settings.nvim_leader = Some(trimmed),
-            "normal" => settings.nvim_normal = Some(trimmed),
             _ => return Err(format!("Unknown binding '{name}'.")),
         }
         save_settings(&state.settings_path, &settings);

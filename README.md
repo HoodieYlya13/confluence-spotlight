@@ -85,7 +85,7 @@ The search box keeps the caret while you click around the bar, so you can start 
 
 ### Neovim mode
 
-Settings → **Neovim mode** turns on a modal (Normal/Insert/Visual) keymap layered over the bar; it's off by default and the base `⌘/Ctrl` shortcuts keep working either way. A `NORMAL`/`INSERT`/`VISUAL` badge shows the mode, the Normal-mode cursor is a real block (and stays on the last character, like Neovim), and **Open in** chooses which mode each summon starts in (Insert by default). The **leader** key (default `Space`) and the **Enter-Normal** key (default `Esc`) are remappable in Settings; the motions are fixed vim conventions.
+Settings → **Neovim mode** turns on a modal (Normal/Insert/Visual) keymap layered over the bar; it's off by default and the base `⌘/Ctrl` shortcuts keep working either way. A `NORMAL`/`INSERT`/`VISUAL` badge shows the mode, the Normal-mode cursor is a real block (and stays on the last character, like Neovim), and **Open in** chooses which mode each summon starts in (Insert by default). The **leader** key (default `Space`) is remappable in Settings; entering Normal mode (`Esc`, `Ctrl+[`, `Ctrl+C`, or `jj`) and the motions are fixed vim conventions.
 
 | Keys | Action |
 |---|---|

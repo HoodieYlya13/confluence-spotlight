@@ -20,7 +20,6 @@ type SessionView = {
   nvim_mode: boolean;
   nvim_open_mode: string;
   nvim_leader: string;
-  nvim_normal: string;
   follow_mouse: boolean;
   app_version: string;
 };
@@ -96,8 +95,7 @@ type BindingName =
   | "scroll"
   | "links"
   | "settings"
-  | "leader"
-  | "normal";
+  | "leader";
 
 const rows: Record<
   BindingName,
@@ -138,12 +136,6 @@ const rows: Record<
     cancel: el<HTMLButtonElement>("#leader-cancel"),
     error: el<HTMLDivElement>("#leader-error"),
   },
-  normal: {
-    record: el<HTMLButtonElement>("#normal-record"),
-    save: el<HTMLButtonElement>("#normal-save"),
-    cancel: el<HTMLButtonElement>("#normal-cancel"),
-    error: el<HTMLDivElement>("#normal-error"),
-  },
 };
 const bindingNames: BindingName[] = [
   "hotkey",
@@ -151,9 +143,8 @@ const bindingNames: BindingName[] = [
   "links",
   "settings",
   "leader",
-  "normal",
 ];
-const singleKeyBindings = new Set<BindingName>(["leader", "normal"]);
+const singleKeyBindings = new Set<BindingName>(["leader"]);
 
 let pending = false;
 let activeView: ViewName = "login";
@@ -168,7 +159,6 @@ let followMouse = true;
 let nvimEnabled = false;
 let nvimOpenMode = "insert";
 let leaderCode = "Space";
-let normalCode = "Escape";
 let mode: "insert" | "normal" | "visual" = "insert";
 let spaceHeld = false;
 let lastJ = 0;
@@ -257,7 +247,6 @@ function applyBindings(session: SessionView) {
   nvimEnabled = session.nvim_mode;
   nvimOpenMode = session.nvim_open_mode;
   leaderCode = session.nvim_leader;
-  normalCode = session.nvim_normal;
   appVersion.textContent = `v${session.app_version}`;
 
   identityName =
@@ -775,7 +764,9 @@ function activateTarget(node: HTMLElement) {
 function openLinkByIndex(index: number) {
   const node = numbered[index];
   exitLinkMode();
-  if (node) activateTarget(node);
+  if (!node) return;
+  activateTarget(node);
+  node.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
 function pageToLinks(direction: 1 | -1) {
@@ -1014,6 +1005,15 @@ function deleteLine() {
   recordCurrentEdit();
 }
 
+function deleteVisualRange(lo: number, hi: number, next: "insert" | "normal") {
+  recordUndo();
+  yankText(input.value.slice(lo, hi + 1));
+  input.value = input.value.slice(0, lo) + input.value.slice(hi + 1);
+  setMode(next);
+  setCaret(lo);
+  recordCurrentEdit();
+}
+
 function enterInsert(pos: number) {
   recordUndo();
   setMode("insert");
@@ -1062,7 +1062,7 @@ function isEnterNormalKey(event: KeyboardEvent): boolean {
     return true;
   }
   if (!event.metaKey && !event.ctrlKey && !event.altKey) {
-    return event.code === "Escape" || event.code === normalCode;
+    return event.code === "Escape";
   }
   return false;
 }
@@ -1071,7 +1071,7 @@ function handleNvimInsert(event: KeyboardEvent): boolean {
   if (isEnterNormalKey(event)) {
     event.preventDefault();
     enterNormal();
-    if (event.code === "Escape" || event.code === normalCode) {
+    if (event.code === "Escape") {
       lastEscapeTime = Date.now();
     }
     return true;
@@ -1116,38 +1116,7 @@ function handleNvimNormal(event: KeyboardEvent): boolean {
       if (activateLinkKey(event)) return true;
     }
     if (event.shiftKey) {
-      if (activeView === "login") {
-        if (event.code === "Enter" || event.code === "NumpadEnter") {
-          exitLinkMode();
-          connectBtn.click();
-          return true;
-        }
-        if (import.meta.env.DEV) {
-          if (event.code === "KeyJ") {
-            exitLinkMode();
-            const juniorBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="JUNIOR_OP"]');
-            if (juniorBtn) juniorBtn.click();
-            return true;
-          }
-          if (event.code === "KeyL") {
-            exitLinkMode();
-            const leadBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="ATS_CORE_LEAD"]');
-            if (leadBtn) leadBtn.click();
-            return true;
-          }
-        } else {
-          if (event.code === "KeyL") {
-            exitLinkMode();
-            connectBtn.click();
-            return true;
-          }
-        }
-      }
-      if (!updateBanner.hidden && event.code === "KeyU") {
-        exitLinkMode();
-        void installUpdate();
-        return true;
-      }
+      if (activateLinkKey(event)) return true;
       const digit = digitOf(event);
       if (digit !== null) {
         pressLinkDigit(digit);
@@ -1424,21 +1393,11 @@ function handleNvimVisual(event: KeyboardEvent): boolean {
     case "KeyD":
     case "KeyX":
       event.preventDefault();
-      recordUndo();
-      yankText(input.value.slice(lo, hi + 1));
-      input.value = input.value.slice(0, lo) + input.value.slice(hi + 1);
-      setMode("normal");
-      setCaret(lo);
-      recordCurrentEdit();
+      deleteVisualRange(lo, hi, "normal");
       return true;
     case "KeyC":
       event.preventDefault();
-      recordUndo();
-      yankText(input.value.slice(lo, hi + 1));
-      input.value = input.value.slice(0, lo) + input.value.slice(hi + 1);
-      setMode("insert");
-      setCaret(lo);
-      recordCurrentEdit();
+      deleteVisualRange(lo, hi, "insert");
       return true;
     default:
       event.preventDefault();
@@ -1453,7 +1412,6 @@ function refreshNvimUi() {
   nvimOpenInsert.classList.toggle("active", nvimOpenMode === "insert");
   nvimOpenNormal.classList.toggle("active", nvimOpenMode === "normal");
   setRowDisplay("leader");
-  setRowDisplay("normal");
   updateModeBadge();
 }
 
@@ -1560,8 +1518,7 @@ function accelOf(name: BindingName): string {
   if (name === "scroll") return scrollKeys;
   if (name === "links") return linkKeys;
   if (name === "settings") return settingsKeys;
-  if (name === "leader") return leaderCode;
-  return normalCode;
+  return leaderCode;
 }
 
 function codeLabel(code: string): string {
@@ -1743,113 +1700,10 @@ async function onOpen() {
   }
 }
 
-function handleInAppShortcut(event: KeyboardEvent): boolean {
-  if (activeView === "login") {
-    if (linkMode && linkChordHeldNow(event) && activateLinkKey(event)) return true;
-    const linkMods = parseMods(linkKeys);
-    if (modsMatch(linkMods, event)) {
-      if (event.code === "Enter" || event.code === "NumpadEnter") {
-        exitLinkMode();
-        connectBtn.click();
-        return true;
-      }
-      if (!updateBanner.hidden && event.code === "KeyU") {
-        exitLinkMode();
-        void installUpdate();
-        return true;
-      }
-      if (import.meta.env.DEV) {
-        if (event.code === "KeyJ") {
-          exitLinkMode();
-          const juniorBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="JUNIOR_OP"]');
-          if (juniorBtn) juniorBtn.click();
-          return true;
-        }
-        if (event.code === "KeyL") {
-          exitLinkMode();
-          const leadBtn = devLogin.querySelector<HTMLButtonElement>('button[data-role="ATS_CORE_LEAD"]');
-          if (leadBtn) leadBtn.click();
-          return true;
-        }
-      } else {
-        if (event.code === "KeyL") {
-          exitLinkMode();
-          connectBtn.click();
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  if (activeView === "settings") {
-    const backByShortcut =
-      modsMatch(parseMods(settingsKeys), event) &&
-      keyToken(event.code) === accelKey(settingsKeys);
-    const backByArrow =
-      event.code === "ArrowLeft" &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      !event.altKey &&
-      !event.shiftKey;
-    if (backByShortcut || backByArrow) {
-      disarmLogout();
-      showView("search");
-      focusInput();
-      return true;
-    }
-
-    if (linkMode && linkChordHeldNow(event)) {
-      const digit = digitOf(event);
-      if (digit !== null) {
-        pressLinkDigit(digit);
-        return true;
-      }
-      if (activateLinkKey(event)) return true;
-    }
-    if (modsMatch(parseMods(linkKeys), event)) {
-      if (!updateBanner.hidden && event.code === "KeyU") {
-        exitLinkMode();
-        void installUpdate();
-        return true;
-      }
-      const digit = digitOf(event);
-      if (digit !== null) {
-        pressLinkDigit(digit);
-        return true;
-      }
-      const token = keyToken(event.code);
-      if (token === "Down") {
-        pageToLinks(1);
-        return true;
-      }
-      if (token === "Up") {
-        pageToLinks(-1);
-        return true;
-      }
-    }
-    if (modsMatch(parseMods(scrollKeys), event)) {
-      const token = keyToken(event.code);
-      if (token === "Down") {
-        scrollContainer(settingsBody, 1);
-        return true;
-      }
-      if (token === "Up") {
-        scrollContainer(settingsBody, -1);
-        return true;
-      }
-    }
-    return false;
-  }
-
-  if (activeView !== "search") return false;
-
-  const settingsMods = parseMods(settingsKeys);
-  if (modsMatch(settingsMods, event) && keyToken(event.code) === accelKey(settingsKeys)) {
-    openSettings();
-    return true;
-  }
-
+function handleChordLinkScroll(
+  event: KeyboardEvent,
+  scroll: (direction: 1 | -1) => void,
+): boolean {
   if (linkMode && linkChordHeldNow(event)) {
     const digit = digitOf(event);
     if (digit !== null) {
@@ -1858,9 +1712,7 @@ function handleInAppShortcut(event: KeyboardEvent): boolean {
     }
     if (activateLinkKey(event)) return true;
   }
-
-  const linkMods = parseMods(linkKeys);
-  if (modsMatch(linkMods, event)) {
+  if (modsMatch(parseMods(linkKeys), event)) {
     if (!updateBanner.hidden && event.code === "KeyU") {
       exitLinkMode();
       void installUpdate();
@@ -1881,18 +1733,60 @@ function handleInAppShortcut(event: KeyboardEvent): boolean {
       return true;
     }
   }
-
-  const scrollMods = parseMods(scrollKeys);
-  if (modsMatch(scrollMods, event)) {
+  if (modsMatch(parseMods(scrollKeys), event)) {
     const token = keyToken(event.code);
     if (token === "Down") {
-      scrollAnswer(1);
+      scroll(1);
       return true;
     }
     if (token === "Up") {
-      scrollAnswer(-1);
+      scroll(-1);
       return true;
     }
+  }
+  return false;
+}
+
+function handleInAppShortcut(event: KeyboardEvent): boolean {
+  if (activeView === "login") {
+    if (linkMode && linkChordHeldNow(event) && activateLinkKey(event)) return true;
+    if (modsMatch(parseMods(linkKeys), event) && activateLinkKey(event)) return true;
+    return false;
+  }
+
+  if (activeView === "settings") {
+    const backByShortcut =
+      modsMatch(parseMods(settingsKeys), event) &&
+      keyToken(event.code) === accelKey(settingsKeys);
+    const backByArrow =
+      event.code === "ArrowLeft" &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey;
+    if (backByShortcut || backByArrow) {
+      disarmLogout();
+      showView("search");
+      focusInput();
+      return true;
+    }
+
+    if (handleChordLinkScroll(event, (dir) => scrollContainer(settingsBody, dir))) {
+      return true;
+    }
+    return false;
+  }
+
+  if (activeView !== "search") return false;
+
+  const settingsMods = parseMods(settingsKeys);
+  if (modsMatch(settingsMods, event) && keyToken(event.code) === accelKey(settingsKeys)) {
+    openSettings();
+    return true;
+  }
+
+  if (handleChordLinkScroll(event, scrollAnswer)) {
+    return true;
   }
 
   if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
