@@ -619,8 +619,6 @@ fn handle_auth_url(app: &AppHandle, url: &url::Url) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if config.use_sso {
-            // Production: exchange at the identity provider, derive the role from
-            // the access token, and keep the refresh token for later rotation.
             match mcp::sso_exchange_code(
                 &config.sso_issuer,
                 &config.sso_client_id,
@@ -655,7 +653,6 @@ fn handle_auth_url(app: &AppHandle, url: &url::Url) {
                 Err(error) => emit_auth_error(&app, &error.to_string()),
             }
         } else {
-            // Dev / demo: exchange at the frontend for a hardcoded role token.
             match mcp::exchange_code(&config.auth_url, &code, &verifier).await {
                 Ok(token) => {
                     let profile = mcp::profile_from_access_token(&token.access_token);
@@ -678,7 +675,6 @@ fn handle_auth_url(app: &AppHandle, url: &url::Url) {
     });
 }
 
-/// Converts an `expires_in` (seconds) into an absolute deadline with a 30s skew.
 fn expiry_from_now(expires_in: Option<i64>) -> Option<u64> {
     expires_in.map(|seconds| now_unix().saturating_add((seconds.max(0) as u64).saturating_sub(30)))
 }
@@ -694,9 +690,6 @@ fn finish_login(app: &AppHandle, role_label: String) {
     );
 }
 
-/// For SSO sessions, rotates the access token via the refresh token when it has
-/// expired. No-op for the dev/demo hardcoded path. Never blocks sign-in — a
-/// failed refresh leaves the (expired) token in place and the call surfaces it.
 async fn refresh_if_needed(app: &AppHandle) {
     let (config, refresh_token) = {
         let Some(state) = app.try_state::<AppState>() else {
@@ -921,7 +914,19 @@ fn install_panel(app: &AppHandle) {
 pub fn run() {
     let config = McpConfig::from_env();
 
-    let builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                show_window(&handle);
+            });
+        }));
+    }
+
+    let builder = builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_deep_link::init())
