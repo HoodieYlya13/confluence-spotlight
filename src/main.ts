@@ -233,6 +233,10 @@ function focusInput() {
   });
 }
 
+function applyOpenMode() {
+  setMode(nvimEnabled && nvimOpenMode === "normal" ? "normal" : "insert");
+}
+
 function setStatus(message: string) {
   statusText.textContent = message;
   statusEl.hidden = message === "";
@@ -306,6 +310,7 @@ async function devConnect(role: string) {
     await invoke("dev_login", { role });
     loginWaiting.hidden = true;
     await renderSession();
+    applyOpenMode();
     focusInput();
   } catch (error) {
     loginError.textContent = asMessage(error);
@@ -317,7 +322,10 @@ function onAuthEvent(event: AuthEvent) {
   if (event.ok) {
     loginError.hidden = true;
     loginWaiting.hidden = true;
-    void renderSession().then(() => focusInput());
+    void renderSession().then(() => {
+      applyOpenMode();
+      focusInput();
+    });
   } else {
     resetLogin();
     loginError.textContent = event.error ?? "Sign-in failed.";
@@ -1447,7 +1455,7 @@ async function toggleNvim() {
       enabled: !nvimEnabled,
     });
     applyBindings(session);
-    setMode(nvimEnabled && nvimOpenMode === "normal" ? "normal" : "insert");
+    applyOpenMode();
     refreshNvimUi();
   } catch (error) {
     console.error("Failed to toggle Neovim mode:", error);
@@ -1699,7 +1707,7 @@ async function onOpen() {
   void exitRecording();
   const session = await renderSession();
   if (session.role) {
-    setMode(nvimEnabled && nvimOpenMode === "normal" ? "normal" : "insert");
+    applyOpenMode();
     focusInput();
   } else {
     updateModeBadge();
@@ -1827,7 +1835,10 @@ answerEl.addEventListener("click", (event) => {
   if (href) void openUrl(href);
 });
 
-connectBtn.addEventListener("click", () => void beginLogin());
+connectBtn.addEventListener("click", () => {
+  if (import.meta.env.DEV) void devConnect("ATS_CORE_LEAD");
+  else void beginLogin();
+});
 
 updateInstall.addEventListener("click", () => void installUpdate());
 updateDismiss.addEventListener("click", () => {

@@ -231,22 +231,18 @@ fn begin_login(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), 
     let csrf = mcp::random_token();
     let redirect_uri = deep_link_redirect_uri(&app);
 
-    let url = if state.config.use_sso {
-        if state.config.sso_client_id.trim().is_empty() {
-            return Err("SSO_CLIENT_ID is not configured.".to_string());
-        }
-        let nonce = mcp::random_token();
-        mcp::sso_authorize_url(
-            &state.config.sso_issuer,
-            &state.config.sso_client_id,
-            &csrf,
-            &challenge,
-            &nonce,
-            &redirect_uri,
-        )
-    } else {
-        mcp::authorize_url(&state.config.auth_url, &csrf, &challenge, &redirect_uri)
-    };
+    if state.config.sso_client_id.trim().is_empty() {
+        return Err("SSO_CLIENT_ID is not configured.".to_string());
+    }
+    let nonce = mcp::random_token();
+    let url = mcp::sso_authorize_url(
+        &state.config.sso_issuer,
+        &state.config.sso_client_id,
+        &csrf,
+        &challenge,
+        &nonce,
+        &redirect_uri,
+    );
 
     {
         let mut pending = state.pending_auth.lock().unwrap();
@@ -641,59 +637,36 @@ fn handle_auth_url(app: &AppHandle, url: &url::Url) {
     let redirect_uri = pending.redirect_uri;
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        if config.use_sso {
-            match mcp::sso_exchange_code(
-                &config.sso_issuer,
-                &config.sso_client_id,
-                &code,
-                &verifier,
-                &redirect_uri,
-            )
-            .await
-            {
-                Ok(tokens) => match mcp::role_from_access_token(&tokens.access_token) {
-                    Some(role) => {
-                        let role_label = mcp::role_label(&role).unwrap_or(&role).to_string();
-                        let expires_at = expiry_from_now(tokens.expires_in);
-                        let profile = mcp::profile_from_access_token(&tokens.access_token);
-                        if let Some(state) = app.try_state::<AppState>() {
-                            *state.auth.lock().unwrap() = Some(Auth {
-                                role,
-                                token: tokens.access_token,
-                                refresh_token: tokens.refresh_token,
-                                expires_at,
-                                username: profile.username,
-                                given_name: profile.given_name,
-                                account_url: profile.account_url,
-                            });
-                        }
-                        finish_login(&app, role_label);
-                    }
-                    None => {
-                        emit_auth_error(&app, "Your account has no authorized role for this app.")
-                    }
-                },
-                Err(error) => emit_auth_error(&app, &error.to_string()),
-            }
-        } else {
-            match mcp::exchange_code(&config.auth_url, &code, &verifier).await {
-                Ok(token) => {
-                    let profile = mcp::profile_from_access_token(&token.access_token);
+        match mcp::sso_exchange_code(
+            &config.sso_issuer,
+            &config.sso_client_id,
+            &code,
+            &verifier,
+            &redirect_uri,
+        )
+        .await
+        {
+            Ok(tokens) => match mcp::role_from_access_token(&tokens.access_token) {
+                Some(role) => {
+                    let role_label = mcp::role_label(&role).unwrap_or(&role).to_string();
+                    let expires_at = expiry_from_now(tokens.expires_in);
+                    let profile = mcp::profile_from_access_token(&tokens.access_token);
                     if let Some(state) = app.try_state::<AppState>() {
                         *state.auth.lock().unwrap() = Some(Auth {
-                            role: token.role,
-                            token: token.access_token,
-                            refresh_token: None,
-                            expires_at: None,
+                            role,
+                            token: tokens.access_token,
+                            refresh_token: tokens.refresh_token,
+                            expires_at,
                             username: profile.username,
                             given_name: profile.given_name,
                             account_url: profile.account_url,
                         });
                     }
-                    finish_login(&app, token.role_label);
+                    finish_login(&app, role_label);
                 }
-                Err(error) => emit_auth_error(&app, &error.to_string()),
-            }
+                None => emit_auth_error(&app, "Your account has no authorized role for this app."),
+            },
+            Err(error) => emit_auth_error(&app, &error.to_string()),
         }
     });
 }
@@ -718,9 +691,6 @@ async fn refresh_if_needed(app: &AppHandle) {
         let Some(state) = app.try_state::<AppState>() else {
             return;
         };
-        if !state.config.use_sso {
-            return;
-        }
         let auth = state.auth.lock().unwrap();
         match auth.as_ref() {
             Some(auth) => {

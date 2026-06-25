@@ -6,7 +6,7 @@
 
 A desktop **spotlight** client for the [accelerator-operations MCP server](https://github.com/HoodieYlya13/mcp-confluence-documentation-rag). Press a global hotkey, ask an operations question, get a short grounded answer with links straight to the source Confluence pages — without leaving what you're doing.
 
-It is a thin, security-conscious window over the same RBAC-governed server the web console fronts: the bearer token lives only in the Rust process and is never exposed to the webview (the desktop analog of the web app's `server-only` tokens). Sign-in is a real **deep-link OAuth Authorization Code + PKCE round trip**, redeemed by the Rust process (never the webview), so the shipped app contains no secrets. A **released build** signs in against the self-hosted **OpenID Connect identity provider** ([`auth.hy13dev.com`](https://auth.hy13dev.com)) and receives **access + refresh tokens** whose role is fixed by the user's account — no role picker. A **dev build** instead signs in through the web console's demo persona picker (or the in-app Dev sign-in) for a hardcoded role token. The MCP server accepts both kinds of token. The MCP call uses the official Rust SDK (`rmcp`) — so the project drives one server from clients in Python, TypeScript, and Rust.
+It is a thin, security-conscious window over the same RBAC-governed server the web console fronts: the bearer token lives only in the Rust process and is never exposed to the webview (the desktop analog of the web app's `server-only` tokens). Sign-in is a real **deep-link OAuth Authorization Code + PKCE round trip**, redeemed by the Rust process (never the webview), so the shipped app contains no secrets. A **released build** signs in against the self-hosted **OpenID Connect identity provider** ([`auth.hy13dev.com`](https://auth.hy13dev.com)) and receives **access + refresh tokens** whose role is fixed by the user's account — no role picker. A **dev build** instead signs in through the in-app Dev sign-in for a hardcoded role token (the deep-link can't round-trip under `tauri dev` on macOS). The MCP server accepts both kinds of token. The MCP call uses the official Rust SDK (`rmcp`) — so the project drives one server from clients in Python, TypeScript, and Rust.
 
 Design rationale lives in [`TAD.md`](./TAD.md).
 
@@ -41,14 +41,12 @@ The app ships with baked-in defaults, so a built `.app` needs no `.env`. For loc
 
 | Variable             | Meaning                                                                                                              |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `MCP_SERVER_URL`     | Base URL of the deployed MCP server                                                                                  |
-| `SSO_ISSUER`         | OIDC identity provider issuer (production sign-in), e.g. `https://auth.hy13dev.com`                                  |
-| `SSO_CLIENT_ID`      | This app's **public** OIDC client_id (PKCE; redirect `confluence-spotlight://auth`)                                  |
-| `SPOTLIGHT_AUTH_URL` | Base URL of the web console — the demo/dev sign-in (hardcoded role tokens)                                           |
-| `SPOTLIGHT_USE_SSO`  | Force the sign-in mode: `true` → SSO, `false` → console demo. Defaults to SSO in release builds, demo in dev builds. |
-| `SPOTLIGHT_HOTKEY`   | Default global shortcut, e.g. `CmdOrCtrl+Shift+Space` (customizable in Settings)                                     |
+| `MCP_SERVER_URL`   | Base URL of the deployed MCP server                                                |
+| `SSO_ISSUER`       | OIDC identity provider issuer (sign-in), e.g. `https://auth.hy13dev.com`            |
+| `SSO_CLIENT_ID`    | This app's **public** OIDC client_id (PKCE; redirect `confluence-spotlight://auth`) |
+| `SPOTLIGHT_HOTKEY` | Default global shortcut, e.g. `CmdOrCtrl+Shift+Space` (customizable in Settings)    |
 
-These are all public values — there are **no secrets here**. In production the app obtains its token from the OIDC provider over PKCE (no client secret — it is a _public_ client). In dev, the bearer tokens live on the web console (its `MCP_TOKEN_*`) and the app obtains one through the demo sign-in. The `DEFAULT_*` constants in `src-tauri/src/mcp.rs` (and the `option_env!` build-time overrides) must point at your deployed provider/console. The `MCP_TOKEN_*` vars are only read by the `probe` example and the dev sign-in.
+These are all public values — there are **no secrets here**. The app obtains its token from the OIDC provider over PKCE (no client secret — it is a _public_ client). The `DEFAULT_*` constants in `src-tauri/src/mcp.rs` (and the `option_env!` build-time overrides) must point at your deployed provider. In a **dev build** the browser deep-link can't round-trip under `tauri dev` on macOS, so Connect signs in directly as a persona using the `MCP_TOKEN_*` from `.env`; those vars are only read by dev builds (the in-app Dev sign-in and the `probe` example).
 
 ## Run
 
@@ -59,10 +57,10 @@ bun run tauri dev
 
 The window opens automatically every time the app launches — after boot, a manual open, a quit-and-reopen, or an update restart. Once you dismiss it (**Esc** or click away), press the hotkey (default **Cmd+Shift+Space**) to summon it again. On a multi-monitor setup it opens on whichever screen the mouse is on; turn this off with Settings → **Follow the cursor** (on by default) to keep it on the last screen it used.
 
-On launch it shows a **connect** screen. **Connect** opens your browser to sign in:
+On launch it shows a **connect** screen:
 
-- **Released build →** the OIDC identity provider (`SSO_ISSUER`). Authenticate (passkey / magic link) and approve the consent prompt; the app returns signed in with the role assigned to your account — there is no role picker. It receives an access + refresh token, and the access token carries the role.
-- **Dev build →** the web console's demo persona picker; choose **Junior Operator** or **ATS Core Lead** and approve the **"Open Confluence Spotlight?"** prompt to return with that hardcoded role token.
+- **Released build →** **Connect** opens your browser to the OIDC identity provider (`SSO_ISSUER`). Authenticate (passkey / magic link) and approve the consent prompt; the app returns signed in with the role assigned to your account — there is no role picker. It receives an access + refresh token, and the access token carries the role.
+- **Dev build →** the deep-link can't round-trip under `tauri dev` on macOS, so there is no browser step: **Connect** signs in directly as **ATS Core Lead**, and the **Dev sign-in** row below lets you pick **Junior Operator** or **ATS Core Lead**. Both read the matching `MCP_TOKEN_*` from `.env`.
 
 Then type a question and press Enter; click a source link to open the Confluence page in your system browser; press **Esc** or click away to dismiss. Tokens are held in memory only (not persisted), so you reconnect each launch; in production the refresh token renews an expired access token in place.
 
@@ -148,7 +146,7 @@ bun install
 bun run tauri build
 ```
 
-Artifacts land under `src-tauri/target/release/bundle/`. A release build signs in via SSO, so make sure `SSO_ISSUER` + `SSO_CLIENT_ID` (and `DEFAULT_SERVER_URL`) are set — bake them in via the `option_env!` constants in `src-tauri/src/mcp.rs`, or override at build time: `SSO_ISSUER=… SSO_CLIENT_ID=… MCP_SERVER_URL=… bun run tauri build`. (`SPOTLIGHT_AUTH_URL` only matters for the demo/dev sign-in.)
+Artifacts land under `src-tauri/target/release/bundle/`. The app signs in via SSO, so make sure `SSO_ISSUER` + `SSO_CLIENT_ID` (and `DEFAULT_SERVER_URL`) are set — bake them in via the `option_env!` constants in `src-tauri/src/mcp.rs`, or override at build time: `SSO_ISSUER=… SSO_CLIENT_ID=… MCP_SERVER_URL=… bun run tauri build`.
 
 > Because the base config sets `bundle.createUpdaterArtifacts: true`, a release `bun run tauri build` (and CI) **must** have the updater signing key available — `TAURI_SIGNING_PRIVATE_KEY` (+ `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) in the environment — or the build fails. The Beta build below turns those artifacts off, so it needs no key. `bun run tauri dev` never signs.
 

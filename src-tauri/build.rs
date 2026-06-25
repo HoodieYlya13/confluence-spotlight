@@ -5,8 +5,6 @@ fn main() {
         "SSO_CLIENT_ID",
         "SSO_ISSUER",
         "MCP_SERVER_URL",
-        "SPOTLIGHT_AUTH_URL",
-        "SPOTLIGHT_USE_SSO",
         "SPOTLIGHT_HOTKEY",
     ] {
         if let Ok(value) = std::env::var(key) {

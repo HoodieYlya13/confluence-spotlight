@@ -33,6 +33,11 @@ beforeEach(() => {
     switch (cmd) {
       case "get_session":
         return session;
+      case "dev_login":
+        session.role = args.role;
+        session.role_label =
+          args.role === "ATS_CORE_LEAD" ? "ATS Core Lead" : "Junior Operator";
+        return session;
       case "set_nvim_mode":
         session.nvim_mode = args.enabled;
         return session;
@@ -145,6 +150,54 @@ describe("link-mode letter activation (activateLinkKey)", () => {
       role: "ATS_CORE_LEAD",
     });
     void app;
+  });
+});
+
+describe("dev Connect button", () => {
+  it("in dev, Connect signs in as ATS_CORE_LEAD instead of opening the browser", async () => {
+    session = baseSession({ role: null, role_label: null });
+    const app = await loadApp(session);
+    (app.doc.querySelector("#connect-btn") as HTMLButtonElement).click();
+    expect(mocks.invoke).toHaveBeenCalledWith("dev_login", {
+      role: "ATS_CORE_LEAD",
+    });
+    expect(mocks.invoke).not.toHaveBeenCalledWith("begin_login");
+  });
+});
+
+describe("open mode honored after login (applyOpenMode)", () => {
+  async function loginAndReachSearch(openMode: "insert" | "normal") {
+    session = baseSession({
+      role: null,
+      role_label: null,
+      nvim_mode: true,
+      nvim_open_mode: openMode,
+    });
+    const app = await loadApp(session);
+    (app.doc.querySelector("#connect-btn") as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      const search = app.doc.querySelector("#search-view") as HTMLElement;
+      if (search.hidden) throw new Error("still on login view");
+    });
+    return app;
+  }
+
+  it("first entry into search after login opens in Insert when that is the choice", async () => {
+    const app = await loginAndReachSearch("insert");
+    expect(app.modeBadge.textContent).toBe("INSERT");
+  });
+
+  it("first entry into search after login opens in Normal when that is the choice", async () => {
+    const app = await loginAndReachSearch("normal");
+    expect(app.modeBadge.textContent).toBe("NORMAL");
+  });
+
+  it("returning from Settings stays in Normal even when the open-mode choice is Insert", async () => {
+    session = baseSession({ nvim_mode: true, nvim_open_mode: "insert" });
+    const app = await loadApp(session);
+    (app.doc.querySelector("#settings-btn") as HTMLButtonElement).click();
+    press("KeyH"); // settings-view Normal nav -> back to conversation
+    expect(app.modeBadge.textContent).toBe("NORMAL");
   });
 });
 

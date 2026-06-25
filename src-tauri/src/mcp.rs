@@ -9,7 +9,6 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 const DEFAULT_SERVER_URL: &str = "https://hoodieylya13-mcp-confluence-documentation-rag.hf.space";
-const DEFAULT_AUTH_URL: &str = "https://confluence-bot.hy13dev.com";
 const DEFAULT_SSO_ISSUER: &str = "https://auth.hy13dev.com";
 const DEFAULT_SSO_CLIENT_ID: &str = "confluence-spotlight-gjOtqPBt";
 const SSO_SCOPE: &str = "openid profile email offline_access";
@@ -31,10 +30,8 @@ pub fn role_label(key: &str) -> Option<&'static str> {
 #[derive(Clone)]
 pub struct McpConfig {
     pub server_url: String,
-    pub auth_url: String,
     pub sso_issuer: String,
     pub sso_client_id: String,
-    pub use_sso: bool,
     pub default_hotkey: String,
 }
 
@@ -46,10 +43,6 @@ impl McpConfig {
             .or_else(|| non_empty_str(option_env!("MCP_SERVER_URL")))
             .unwrap_or_else(|| DEFAULT_SERVER_URL.to_string());
 
-        let auth_url = non_empty_env("SPOTLIGHT_AUTH_URL")
-            .or_else(|| non_empty_str(option_env!("SPOTLIGHT_AUTH_URL")))
-            .unwrap_or_else(|| DEFAULT_AUTH_URL.to_string());
-
         let sso_issuer = non_empty_env("SSO_ISSUER")
             .or_else(|| non_empty_str(option_env!("SSO_ISSUER")))
             .unwrap_or_else(|| DEFAULT_SSO_ISSUER.to_string());
@@ -58,26 +51,14 @@ impl McpConfig {
             .or_else(|| non_empty_str(option_env!("SSO_CLIENT_ID")))
             .unwrap_or_else(|| DEFAULT_SSO_CLIENT_ID.to_string());
 
-        let use_sso = match non_empty_env("SPOTLIGHT_USE_SSO")
-            .or_else(|| non_empty_str(option_env!("SPOTLIGHT_USE_SSO")))
-        {
-            Some(value) => matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            ),
-            None => !cfg!(debug_assertions),
-        };
-
         let default_hotkey = non_empty_env("SPOTLIGHT_HOTKEY")
             .or_else(|| non_empty_str(option_env!("SPOTLIGHT_HOTKEY")))
             .unwrap_or_else(|| DEFAULT_HOTKEY.to_string());
 
         Self {
             server_url,
-            auth_url,
             sso_issuer,
             sso_client_id,
-            use_sso,
             default_hotkey,
         }
     }
@@ -112,42 +93,8 @@ pub fn pkce_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(hasher.finalize())
 }
 
-pub fn authorize_url(auth_url: &str, state: &str, challenge: &str, redirect_uri: &str) -> String {
-    format!(
-        "{}/spotlight-login?state={}&code_challenge={}&redirect_uri={}",
-        auth_url.trim_end_matches('/'),
-        urlencode(state),
-        urlencode(challenge),
-        urlencode(redirect_uri),
-    )
-}
-
 fn urlencode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
-}
-
-#[derive(Deserialize)]
-pub struct TokenResponse {
-    pub access_token: String,
-    pub role: String,
-    pub role_label: String,
-}
-
-pub async fn exchange_code(auth_url: &str, code: &str, verifier: &str) -> Result<TokenResponse> {
-    let url = format!("{}/api/spotlight/token", auth_url.trim_end_matches('/'));
-    let response = reqwest::Client::new()
-        .post(url)
-        .json(&serde_json::json!({ "code": code, "code_verifier": verifier }))
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        return Err(anyhow!("Sign-in failed ({status}): {body}"));
-    }
-
-    Ok(response.json::<TokenResponse>().await?)
 }
 
 pub fn sso_authorize_url(
@@ -235,7 +182,10 @@ pub fn role_from_access_token(token: &str) -> Option<String> {
         .filter_map(|value| value.as_str())
         .collect();
 
-    if roles.contains(&"ATS_CORE_LEAD") || roles.contains(&"ADMIN") {
+    if roles.contains(&"ATS_CORE_LEAD")
+        || roles.contains(&"ADMIN")
+        || roles.contains(&"ADMIN_DURNAL")
+    {
         Some("ATS_CORE_LEAD".to_string())
     } else if roles.contains(&"JUNIOR_OP") {
         Some("JUNIOR_OP".to_string())
