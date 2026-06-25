@@ -1,4 +1,14 @@
 fn main() {
+    println!("cargo:rerun-if-changed=../.env");
+    for key in &[
+        "SSO_CLIENT_ID",
+        "SSO_ISSUER",
+        "MCP_SERVER_URL",
+        "SPOTLIGHT_HOTKEY",
+    ] {
+        println!("cargo:rerun-if-env-changed={}", key);
+    }
+
     let _ = dotenvy::from_path("../.env");
 
     for key in &[
