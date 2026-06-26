@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 const DEFAULT_SERVER_URL: &str = "https://hoodieylya13-mcp-confluence-documentation-rag.hf.space";
 const DEFAULT_SSO_ISSUER: &str = "https://auth.hy13dev.com";
 const DEFAULT_SSO_CLIENT_ID: &str = "confluence-spotlight-gjOtqPBt";
-const SSO_SCOPE: &str = "openid profile email offline_access";
+const DEFAULT_SSO_SCOPE: &str = "openid profile email offline_access";
 const DEFAULT_HOTKEY: &str = "CmdOrCtrl+Shift+Space";
 const ASK_TOOL: &str = "ask_accelerator_operations";
 
@@ -32,6 +32,8 @@ pub struct McpConfig {
     pub server_url: String,
     pub sso_issuer: String,
     pub sso_client_id: String,
+    pub sso_client_secret: Option<String>,
+    pub sso_scope: Option<String>,
     pub default_hotkey: String,
 }
 
@@ -51,6 +53,12 @@ impl McpConfig {
             .or_else(|| non_empty_str(option_env!("SSO_CLIENT_ID")))
             .unwrap_or_else(|| DEFAULT_SSO_CLIENT_ID.to_string());
 
+        let sso_client_secret =
+            non_empty_env("CLIENT_SECRET").or_else(|| non_empty_str(option_env!("CLIENT_SECRET")));
+
+        let sso_scope =
+            non_empty_env("SSO_SCOPE").or_else(|| non_empty_str(option_env!("SSO_SCOPE")));
+
         let default_hotkey = non_empty_env("SPOTLIGHT_HOTKEY")
             .or_else(|| non_empty_str(option_env!("SPOTLIGHT_HOTKEY")))
             .unwrap_or_else(|| DEFAULT_HOTKEY.to_string());
@@ -59,6 +67,8 @@ impl McpConfig {
             server_url,
             sso_issuer,
             sso_client_id,
+            sso_client_secret,
+            sso_scope,
             default_hotkey,
         }
     }
@@ -97,24 +107,46 @@ fn urlencode(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
 
-pub fn sso_authorize_url(
+pub async fn sso_authorize_url(
     issuer: &str,
     client_id: &str,
+    scope: Option<&str>,
     state: &str,
     challenge: &str,
     nonce: &str,
     redirect_uri: &str,
-) -> String {
-    format!(
-        "{}/api/oidc/authorize?response_type=code&client_id={}&redirect_uri={}&scope={}&code_challenge={}&code_challenge_method=S256&state={}&nonce={}",
-        issuer.trim_end_matches('/'),
+) -> Result<String> {
+    let issuer = issuer.trim_end_matches('/');
+    let client = reqwest::Client::new();
+    let config = discover_openid_configuration(&client, issuer)
+        .await
+        .ok_or_else(|| discovery_error(issuer))?;
+    let scope = resolve_scope(scope, &config);
+
+    Ok(format!(
+        "{}?response_type=code&client_id={}&redirect_uri={}&scope={}&code_challenge={}&code_challenge_method=S256&state={}&nonce={}",
+        config.authorization_endpoint,
         urlencode(client_id),
         urlencode(redirect_uri),
-        urlencode(SSO_SCOPE),
+        urlencode(&scope),
         urlencode(challenge),
         urlencode(state),
         urlencode(nonce),
-    )
+    ))
+}
+
+/// Resolve the OAuth scope: explicit `SSO_SCOPE` wins, otherwise fall back to
+/// what the server advertises in its discovery document, then a sane default.
+fn resolve_scope(scope: Option<&str>, config: &OpenIdConfiguration) -> String {
+    scope
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            let advertised = config.scopes_supported.join(" ");
+            (!advertised.is_empty()).then_some(advertised)
+        })
+        .unwrap_or_else(|| DEFAULT_SSO_SCOPE.to_string())
 }
 
 #[derive(Deserialize)]
@@ -126,9 +158,40 @@ pub struct SsoTokens {
     pub expires_in: Option<i64>,
 }
 
+#[derive(Deserialize)]
+struct OpenIdConfiguration {
+    authorization_endpoint: String,
+    token_endpoint: String,
+    #[serde(default)]
+    scopes_supported: Vec<String>,
+}
+
+fn discovery_error(issuer: &str) -> anyhow::Error {
+    anyhow!("Could not load OIDC discovery document from {issuer}/.well-known/openid-configuration")
+}
+
+async fn discover_openid_configuration(
+    client: &reqwest::Client,
+    issuer: &str,
+) -> Option<OpenIdConfiguration> {
+    let discovery_url = format!("{issuer}/.well-known/openid-configuration");
+    let resp = client.get(&discovery_url).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    resp.json::<OpenIdConfiguration>().await.ok()
+}
+
 async fn sso_token_request(issuer: &str, form: &[(&str, &str)]) -> Result<SsoTokens> {
-    let url = format!("{}/api/oidc/token", issuer.trim_end_matches('/'));
-    let response = reqwest::Client::new().post(url).form(form).send().await?;
+    let client = reqwest::Client::new();
+    let issuer = issuer.trim_end_matches('/');
+
+    let token_endpoint = discover_openid_configuration(&client, issuer)
+        .await
+        .ok_or_else(|| discovery_error(issuer))?
+        .token_endpoint;
+
+    let response = client.post(token_endpoint).form(form).send().await?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -142,33 +205,39 @@ async fn sso_token_request(issuer: &str, form: &[(&str, &str)]) -> Result<SsoTok
 pub async fn sso_exchange_code(
     issuer: &str,
     client_id: &str,
+    client_secret: Option<&str>,
     code: &str,
     verifier: &str,
     redirect_uri: &str,
 ) -> Result<SsoTokens> {
-    sso_token_request(
-        issuer,
-        &[
-            ("grant_type", "authorization_code"),
-            ("code", code),
-            ("redirect_uri", redirect_uri),
-            ("code_verifier", verifier),
-            ("client_id", client_id),
-        ],
-    )
-    .await
+    let mut params = vec![
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", redirect_uri),
+        ("code_verifier", verifier),
+        ("client_id", client_id),
+    ];
+    if let Some(secret) = client_secret {
+        params.push(("client_secret", secret));
+    }
+    sso_token_request(issuer, &params).await
 }
 
-pub async fn sso_refresh(issuer: &str, client_id: &str, refresh_token: &str) -> Result<SsoTokens> {
-    sso_token_request(
-        issuer,
-        &[
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token),
-            ("client_id", client_id),
-        ],
-    )
-    .await
+pub async fn sso_refresh(
+    issuer: &str,
+    client_id: &str,
+    client_secret: Option<&str>,
+    refresh_token: &str,
+) -> Result<SsoTokens> {
+    let mut params = vec![
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+        ("client_id", client_id),
+    ];
+    if let Some(secret) = client_secret {
+        params.push(("client_secret", secret));
+    }
+    sso_token_request(issuer, &params).await
 }
 
 pub fn role_from_access_token(token: &str) -> Option<String> {

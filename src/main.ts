@@ -283,7 +283,7 @@ async function renderSession(): Promise<SessionView> {
 function resetLogin() {
   connectBtn.hidden = false;
   connectBtn.disabled = false;
-  connectBtn.textContent = "Connect with HY13 Passkey SSO";
+  connectBtn.textContent = "Login";
   loginWaiting.hidden = true;
   loginError.hidden = true;
 }

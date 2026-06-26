@@ -225,7 +225,7 @@ fn get_session(state: tauri::State<'_, AppState>) -> SessionView {
 }
 
 #[tauri::command]
-fn begin_login(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
+async fn begin_login(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let verifier = mcp::random_token();
     let challenge = mcp::pkce_challenge(&verifier);
     let csrf = mcp::random_token();
@@ -238,11 +238,14 @@ fn begin_login(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), 
     let url = mcp::sso_authorize_url(
         &state.config.sso_issuer,
         &state.config.sso_client_id,
+        state.config.sso_scope.as_deref(),
         &csrf,
         &challenge,
         &nonce,
         &redirect_uri,
-    );
+    )
+    .await
+    .map_err(|error| error.to_string())?;
 
     {
         let mut pending = state.pending_auth.lock().unwrap();
@@ -640,6 +643,7 @@ fn handle_auth_url(app: &AppHandle, url: &url::Url) {
         match mcp::sso_exchange_code(
             &config.sso_issuer,
             &config.sso_client_id,
+            config.sso_client_secret.as_deref(),
             &code,
             &verifier,
             &redirect_uri,
@@ -708,8 +712,13 @@ async fn refresh_if_needed(app: &AppHandle) {
         return;
     };
 
-    if let Ok(tokens) =
-        mcp::sso_refresh(&config.sso_issuer, &config.sso_client_id, &refresh_token).await
+    if let Ok(tokens) = mcp::sso_refresh(
+        &config.sso_issuer,
+        &config.sso_client_id,
+        config.sso_client_secret.as_deref(),
+        &refresh_token,
+    )
+    .await
     {
         if let Some(role) = mcp::role_from_access_token(&tokens.access_token) {
             let expires_at = expiry_from_now(tokens.expires_in);
