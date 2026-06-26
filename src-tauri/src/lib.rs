@@ -40,6 +40,7 @@ const DEFAULT_LINK_KEYS: &str = "CmdOrCtrl+Shift+Down";
 const DEFAULT_SETTINGS_KEYS: &str = "CmdOrCtrl+,";
 const DEFAULT_NVIM_OPEN_MODE: &str = "insert";
 const DEFAULT_NVIM_LEADER: &str = "Space";
+const DEFAULT_THEME: &str = "auto";
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct Settings {
@@ -51,6 +52,7 @@ struct Settings {
     nvim_open_mode: Option<String>,
     nvim_leader: Option<String>,
     follow_mouse: Option<bool>,
+    theme: Option<String>,
 }
 
 #[derive(Clone)]
@@ -102,6 +104,7 @@ struct SessionView {
     nvim_open_mode: String,
     nvim_leader: String,
     follow_mouse: bool,
+    theme: String,
     app_version: String,
 }
 
@@ -191,6 +194,13 @@ fn session_view(state: &AppState) -> SessionView {
         )
     };
     let follow_mouse = state.settings.lock().unwrap().follow_mouse.unwrap_or(true);
+    let theme = state
+        .settings
+        .lock()
+        .unwrap()
+        .theme
+        .clone()
+        .unwrap_or_else(|| DEFAULT_THEME.to_string());
     let auth = state.auth.lock().unwrap();
     let role = auth.as_ref().map(|auth| auth.role.clone());
     let role_label = role
@@ -215,6 +225,7 @@ fn session_view(state: &AppState) -> SessionView {
         nvim_open_mode,
         nvim_leader,
         follow_mouse,
+        theme,
         app_version: env!("CARGO_PKG_VERSION").to_string(),
     }
 }
@@ -402,6 +413,19 @@ fn set_follow_mouse(
     {
         let mut settings = state.settings.lock().unwrap();
         settings.follow_mouse = Some(enabled);
+        save_settings(&state.settings_path, &settings);
+    }
+    Ok(session_view(state.inner()))
+}
+
+#[tauri::command]
+fn set_theme(state: tauri::State<'_, AppState>, theme: String) -> Result<SessionView, String> {
+    if !matches!(theme.as_str(), "auto" | "light" | "dark") {
+        return Err(format!("Unknown theme '{theme}'."));
+    }
+    {
+        let mut settings = state.settings.lock().unwrap();
+        settings.theme = Some(theme);
         save_settings(&state.settings_path, &settings);
     }
     Ok(session_view(state.inner()))
@@ -839,7 +863,9 @@ async fn check_update(app: AppHandle) -> Result<UpdateCheck, String> {
 }
 
 fn register_hotkey(app: &AppHandle, accelerator: &str) -> Result<(), String> {
-    app.global_shortcut()
+    let shortcuts = app.global_shortcut();
+    let _ = shortcuts.unregister(accelerator);
+    shortcuts
         .on_shortcut(accelerator, move |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
                 toggle_window(app);
@@ -860,6 +886,12 @@ fn setup_window(app: &AppHandle) {
     };
     let _ = window.set_always_on_top(true);
 
+    #[cfg(target_os = "windows")]
+    {
+        disable_keyboard_system_menu(&window);
+        capture_reserved_hotkeys(app, &window);
+    }
+
     let handle = app.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Focused(false) = event {
@@ -871,6 +903,95 @@ fn setup_window(app: &AppHandle) {
             if needs_restore {
                 let _ = register_current_hotkey_internal(&handle);
             }
+        }
+    });
+}
+
+#[cfg(target_os = "windows")]
+fn disable_keyboard_system_menu(window: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
+    use windows::Win32::UI::WindowsAndMessaging::{SC_KEYMENU, WM_SYSCOMMAND};
+
+    unsafe extern "system" fn subclass_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+        _id: usize,
+        _data: usize,
+    ) -> LRESULT {
+        if msg == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_KEYMENU as usize {
+            return LRESULT(0);
+        }
+        DefSubclassProc(hwnd, msg, wparam, lparam)
+    }
+
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            let _ = SetWindowSubclass(hwnd, Some(subclass_proc), 0, 0);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn alt_accelerator(key: &str) -> String {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        GetKeyState, VK_CONTROL, VK_LWIN, VK_RWIN, VK_SHIFT,
+    };
+    let down = |vk: i32| -> bool { (unsafe { GetKeyState(vk) } as u16 & 0x8000) != 0 };
+    let mut parts: Vec<&str> = Vec::new();
+    if down(VK_LWIN.0 as i32) || down(VK_RWIN.0 as i32) {
+        parts.push("Cmd");
+    }
+    if down(VK_CONTROL.0 as i32) {
+        parts.push("Ctrl");
+    }
+    parts.push("Alt");
+    if down(VK_SHIFT.0 as i32) {
+        parts.push("Shift");
+    }
+    parts.push(key);
+    parts.join("+")
+}
+
+#[cfg(target_os = "windows")]
+fn capture_reserved_hotkeys(app: &AppHandle, window: &tauri::WebviewWindow) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2AcceleratorKeyPressedEventArgs, ICoreWebView2Controller,
+        COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+    };
+    use webview2_com::AcceleratorKeyPressedEventHandler;
+    use windows::Win32::UI::Input::KeyboardAndMouse::VK_SPACE;
+
+    let app_handle = app.clone();
+    let _ = window.with_webview(move |webview| {
+        let controller = webview.controller();
+        let handler = AcceleratorKeyPressedEventHandler::create(Box::new(
+            move |_controller: Option<ICoreWebView2Controller>,
+                  args: Option<ICoreWebView2AcceleratorKeyPressedEventArgs>|
+                  -> windows::core::Result<()> {
+                let Some(args) = args else {
+                    return Ok(());
+                };
+                unsafe {
+                    let mut kind = COREWEBVIEW2_KEY_EVENT_KIND(0);
+                    args.KeyEventKind(&mut kind)?;
+                    let mut vkey: u32 = 0;
+                    args.VirtualKey(&mut vkey)?;
+                    if kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN
+                        && vkey == VK_SPACE.0 as u32
+                    {
+                        let _ = app_handle.emit("record-system-key", alt_accelerator("Space"));
+                        args.SetHandled(true)?;
+                    }
+                }
+                Ok(())
+            },
+        ));
+        let mut token = 0i64;
+        unsafe {
+            let _ = controller.add_AcceleratorKeyPressed(&handler, &mut token);
         }
     });
 }
@@ -951,6 +1072,7 @@ pub fn run() {
             set_hotkey,
             set_binding,
             set_nvim_mode,
+            set_theme,
             set_nvim_open_mode,
             set_follow_mouse,
             hide_window,

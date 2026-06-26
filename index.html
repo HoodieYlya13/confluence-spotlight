@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="auto">
   <head>
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="/src/styles.css" />
@@ -113,13 +113,24 @@
           </div>
 
           <div class="setting-row column">
+            <div class="setting-label">Leader modifier</div>
+            <div class="setting-hint">Swap the primary modifier on every shortcut at once. Combinations like Ctrl+Alt are left untouched.</div>
+            <div class="dev-login-buttons">
+              <button id="leader-mod-ctrl" class="ghost-btn" type="button"></button>
+              <button id="leader-mod-cmd" class="ghost-btn" type="button"></button>
+              <button id="leader-mod-alt" class="ghost-btn" type="button"></button>
+            </div>
+            <div id="leader-mod-error" class="form-error" hidden></div>
+          </div>
+
+          <div class="setting-row column">
             <div class="setting-label">Global hotkey</div>
             <div class="hotkey-row">
               <button id="hotkey-record" class="hotkey-display" type="button"></button>
               <button id="hotkey-save" class="ghost-btn" type="button" hidden>Save</button>
               <button id="hotkey-cancel" class="ghost-btn" type="button" hidden>Cancel</button>
             </div>
-            <div class="setting-hint">Click the shortcut, then press a new key combination.</div>
+            <div class="setting-hint">Click the shortcut, then press a new key combination. Enter saves, Esc cancels.</div>
             <div id="hotkey-error" class="form-error" hidden></div>
           </div>
 
@@ -195,6 +206,16 @@
               </div>
               <div class="setting-hint">Click, then press a single key (default Space). Enter Normal mode with Esc, Ctrl+[, Ctrl+C, or jj.</div>
               <div id="leader-error" class="form-error" hidden></div>
+            </div>
+          </div>
+
+          <div class="setting-row column">
+            <div class="setting-label">Appearance</div>
+            <div class="setting-hint">Match the system theme, or force light or dark.</div>
+            <div class="dev-login-buttons">
+              <button id="theme-auto" class="ghost-btn" type="button" data-theme-choice="auto">Auto</button>
+              <button id="theme-light" class="ghost-btn" type="button" data-theme-choice="light">Light</button>
+              <button id="theme-dark" class="ghost-btn" type="button" data-theme-choice="dark">Dark</button>
             </div>
           </div>
 

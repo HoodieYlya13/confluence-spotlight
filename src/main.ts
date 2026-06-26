@@ -21,6 +21,7 @@ type SessionView = {
   nvim_open_mode: string;
   nvim_leader: string;
   follow_mouse: boolean;
+  theme: string;
   app_version: string;
 };
 type AnswerPayload = { answer: string; role: string };
@@ -90,6 +91,12 @@ const checkUpdateBtn = el<HTMLButtonElement>("#check-update");
 const updateStatus = el<HTMLDivElement>("#update-status");
 const appVersion = el<HTMLSpanElement>("#app-version");
 
+const uaPlatform =
+  (navigator as Navigator & { userAgentData?: { platform?: string } })
+    .userAgentData?.platform ?? "";
+const isMac =
+  /Mac/i.test(uaPlatform) || /Mac OS/i.test(navigator.userAgent);
+
 type BindingName =
   | "hotkey"
   | "scroll"
@@ -145,6 +152,61 @@ const bindingNames: BindingName[] = [
   "leader",
 ];
 const singleKeyBindings = new Set<BindingName>(["leader"]);
+
+type LeaderMod = "Ctrl" | "Cmd" | "Alt";
+const LEADER_MODS: LeaderMod[] = isMac ? ["Ctrl", "Alt", "Cmd"] : ["Ctrl", "Alt"];
+const LEADER_GROUPS: Record<LeaderMod, Set<string>> = {
+  Ctrl: new Set(["Ctrl", "Control", ...(isMac ? [] : ["CmdOrCtrl", "CommandOrControl"])]),
+  Cmd: new Set([
+    "Cmd",
+    "Command",
+    "Super",
+    "Meta",
+    ...(isMac ? ["CmdOrCtrl", "CommandOrControl"] : []),
+  ]),
+  Alt: new Set(["Alt", "Option"]),
+};
+const LEADER_TARGETS: BindingName[] = ["hotkey", "scroll", "links", "settings"];
+const leaderModButtons: Record<LeaderMod, HTMLButtonElement> = {
+  Ctrl: el<HTMLButtonElement>("#leader-mod-ctrl"),
+  Cmd: el<HTMLButtonElement>("#leader-mod-cmd"),
+  Alt: el<HTMLButtonElement>("#leader-mod-alt"),
+};
+const leaderModError = el<HTMLDivElement>("#leader-mod-error");
+
+type Theme = "auto" | "light" | "dark";
+const THEMES: Theme[] = ["auto", "light", "dark"];
+const themeButtons: Record<Theme, HTMLButtonElement> = {
+  auto: el<HTMLButtonElement>("#theme-auto"),
+  light: el<HTMLButtonElement>("#theme-light"),
+  dark: el<HTMLButtonElement>("#theme-dark"),
+};
+let theme: Theme = "auto";
+
+function asTheme(value: string): Theme {
+  return THEMES.includes(value as Theme) ? (value as Theme) : "auto";
+}
+
+function applyTheme(next: Theme) {
+  theme = next;
+  document.documentElement.dataset.theme = next;
+  refreshThemeUi();
+}
+
+function refreshThemeUi() {
+  for (const choice of THEMES) {
+    themeButtons[choice].classList.toggle("active", theme === choice);
+  }
+}
+
+async function setTheme(choice: Theme) {
+  try {
+    const session = await invoke<SessionView>("set_theme", { theme: choice });
+    applyBindings(session);
+  } catch (error) {
+    console.error("Failed to set theme:", error);
+  }
+}
 
 let pending = false;
 let activeView: ViewName = "login";
@@ -251,6 +313,7 @@ function applyBindings(session: SessionView) {
   nvimEnabled = session.nvim_mode;
   nvimOpenMode = session.nvim_open_mode;
   leaderCode = session.nvim_leader;
+  applyTheme(asTheme(session.theme));
   appVersion.textContent = `v${session.app_version}`;
 
   identityName =
@@ -1506,8 +1569,8 @@ async function submit() {
   }
 }
 
-function formatHotkey(accelerator: string): string {
-  const symbols: Record<string, string> = {
+function modSymbol(token: string): string | null {
+  const mac: Record<string, string> = {
     CmdOrCtrl: "⌘",
     CommandOrControl: "⌘",
     Cmd: "⌘",
@@ -1519,6 +1582,25 @@ function formatHotkey(accelerator: string): string {
     Alt: "⌥",
     Option: "⌥",
     Shift: "⇧",
+  };
+  const other: Record<string, string> = {
+    CmdOrCtrl: "Ctrl",
+    CommandOrControl: "Ctrl",
+    Cmd: "Win",
+    Command: "Win",
+    Super: "Win",
+    Meta: "Win",
+    Ctrl: "Ctrl",
+    Control: "Ctrl",
+    Alt: "Alt",
+    Option: "Alt",
+    Shift: "Shift",
+  };
+  return (isMac ? mac : other)[token] ?? null;
+}
+
+function formatHotkey(accelerator: string): string {
+  const keys: Record<string, string> = {
     Up: "↑",
     Down: "↓",
     Left: "←",
@@ -1526,9 +1608,11 @@ function formatHotkey(accelerator: string): string {
   };
   return accelerator
     .split("+")
-    .map((part) => symbols[part] ?? part)
-    .join(" ");
+    .map((part) => modSymbol(part) ?? keys[part] ?? part)
+    .join(isMac ? " " : "+");
 }
+
+statusHint.textContent = isMac ? "⌃C to cancel" : "Ctrl+C to cancel";
 
 function accelOf(name: BindingName): string {
   if (name === "hotkey") return currentHotkey;
@@ -1561,6 +1645,66 @@ function setRowDisplay(name: BindingName) {
   rows[name].record.textContent = singleKeyBindings.has(name)
     ? codeLabel(accelOf(name))
     : formatHotkey(accelOf(name));
+}
+
+function leaderGroupsIn(accelerator: string): LeaderMod[] {
+  const parts = new Set(accelerator.split("+"));
+  return LEADER_MODS.filter((mod) =>
+    [...LEADER_GROUPS[mod]].some((token) => parts.has(token)),
+  );
+}
+
+function withLeader(accelerator: string, leader: LeaderMod): string | null {
+  const groups = leaderGroupsIn(accelerator);
+  if (groups.length !== 1) return null;
+  const next = accelerator
+    .split("+")
+    .map((token) => (LEADER_GROUPS[groups[0]].has(token) ? leader : token))
+    .join("+");
+  return next === accelerator ? null : next;
+}
+
+function activeLeader(): LeaderMod | null {
+  const found = new Set<LeaderMod>();
+  for (const name of LEADER_TARGETS) {
+    const groups = leaderGroupsIn(accelOf(name));
+    if (groups.length === 1) found.add(groups[0]);
+  }
+  return found.size === 1 ? [...found][0] : null;
+}
+
+function refreshLeaderModUi() {
+  for (const mod of LEADER_MODS) {
+    leaderModButtons[mod].textContent = modSymbol(mod) ?? mod;
+  }
+  const active = activeLeader();
+  for (const mod of LEADER_MODS) {
+    leaderModButtons[mod].classList.toggle("active", active === mod);
+  }
+}
+
+async function setLeaderMod(leader: LeaderMod) {
+  for (const name of LEADER_TARGETS) {
+    const next = withLeader(accelOf(name), leader);
+    if (!next) continue;
+    try {
+      if (name === "hotkey") {
+        currentHotkey = await invoke<string>("set_hotkey", { hotkey: next });
+      } else {
+        applyBindings(
+          await invoke<SessionView>("set_binding", { name, accelerator: next }),
+        );
+      }
+    } catch (error) {
+      leaderModError.textContent = asMessage(error);
+      leaderModError.hidden = false;
+      refreshLeaderModUi();
+      return;
+    }
+  }
+  leaderModError.hidden = true;
+  for (const name of LEADER_TARGETS) setRowDisplay(name);
+  refreshLeaderModUi();
 }
 
 async function enterRecording(name: BindingName) {
@@ -1614,6 +1758,18 @@ function toAccelerator(event: KeyboardEvent): string | null {
   return [...mods, key].join("+");
 }
 
+function applyCandidate(name: BindingName, accelerator: string) {
+  const single = singleKeyBindings.has(name);
+  candidateAccel = accelerator;
+  const row = rows[name];
+  row.record.classList.remove("recording");
+  row.record.textContent = single
+    ? codeLabel(accelerator)
+    : formatHotkey(accelerator);
+  row.save.hidden = false;
+  row.cancel.hidden = false;
+}
+
 function captureHotkey(event: KeyboardEvent) {
   event.preventDefault();
   event.stopPropagation();
@@ -1626,6 +1782,11 @@ function captureHotkey(event: KeyboardEvent) {
     return;
   }
 
+  if (candidateAccel && event.key === "Enter") {
+    void saveBinding();
+    return;
+  }
+
   let accelerator: string | null;
   if (single) {
     if (isModifierCode(event.code)) return;
@@ -1635,14 +1796,7 @@ function captureHotkey(event: KeyboardEvent) {
   }
   if (!accelerator) return;
 
-  candidateAccel = accelerator;
-  const row = rows[recordingTarget];
-  row.record.classList.remove("recording");
-  row.record.textContent = single
-    ? codeLabel(accelerator)
-    : formatHotkey(accelerator);
-  row.save.hidden = false;
-  row.cancel.hidden = false;
+  applyCandidate(recordingTarget, accelerator);
 }
 
 async function saveBinding() {
@@ -1683,8 +1837,11 @@ function openSettings() {
     rows[name].cancel.hidden = true;
   }
   updateStatus.hidden = true;
+  leaderModError.hidden = true;
   refreshFollowMouseUi();
   refreshNvimUi();
+  refreshLeaderModUi();
+  refreshThemeUi();
   showView("settings");
 }
 
@@ -1881,6 +2038,17 @@ for (const name of bindingNames) {
   row.cancel.addEventListener("click", () => void exitRecording());
 }
 
+(["Ctrl", "Cmd", "Alt"] as LeaderMod[]).forEach((mod) => {
+  leaderModButtons[mod].hidden = !LEADER_MODS.includes(mod);
+});
+for (const mod of LEADER_MODS) {
+  leaderModButtons[mod].addEventListener("click", () => void setLeaderMod(mod));
+}
+
+for (const choice of THEMES) {
+  themeButtons[choice].addEventListener("click", () => void setTheme(choice));
+}
+
 window.addEventListener(
   "keydown",
   (event) => {
@@ -1983,6 +2151,10 @@ document.addEventListener("click", (event) => {
 });
 
 void listen("spotlight-open", () => void onOpen());
+void listen<string>("record-system-key", (event) => {
+  if (!recordingTarget || singleKeyBindings.has(recordingTarget)) return;
+  applyCandidate(recordingTarget, event.payload);
+});
 void listen<AuthEvent>("spotlight-auth", (event) => onAuthEvent(event.payload));
 void listen<UpdateAvailable>(
   "spotlight-update-available",
