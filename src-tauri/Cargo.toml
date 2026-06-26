@@ -1,6 +1,6 @@
 [package]
 name = "confluence-spotlight"
-version = "0.1.16"
+version = "0.1.17"
 description = "Spotlight desktop client for the Confluence RAG MCP server"
 authors = ["HoodieYlya13"]
 edition = "2021"
