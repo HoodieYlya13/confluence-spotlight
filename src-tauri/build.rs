@@ -5,6 +5,8 @@ fn main() {
         "SSO_ISSUER",
         "MCP_SERVER_URL",
         "SPOTLIGHT_HOTKEY",
+        "SSO_SCOPE",
+        "CLIENT_SECRET",
     ] {
         println!("cargo:rerun-if-env-changed={}", key);
     }
@@ -16,6 +18,8 @@ fn main() {
         "SSO_ISSUER",
         "MCP_SERVER_URL",
         "SPOTLIGHT_HOTKEY",
+        "SSO_SCOPE",
+        "CLIENT_SECRET",
     ] {
         if let Ok(value) = std::env::var(key) {
             println!("cargo:rustc-env={}={}", key, value);
