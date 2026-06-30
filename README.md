@@ -10,6 +10,10 @@ It is a thin, security-conscious window over the same RBAC-governed server the w
 
 Design rationale lives in [`TAD.md`](./TAD.md).
 
+<p align="center">
+  <video src="https://hy13dev.com/confluence-bot-spotlight.mp4" width="100%" autoplay loop muted playsinline></video>
+</p>
+
 ## Download
 
 Prebuilt installers for **macOS, Windows, and Linux** are available on the [GitHub Releases](https://github.com/HoodieYlya13/confluence-spotlight/releases) page, built automatically by the cross-platform [`release` workflow](.github/workflows/release.yml):
