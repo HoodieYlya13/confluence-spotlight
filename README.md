@@ -11,7 +11,7 @@ It is a thin, security-conscious window over the same RBAC-governed server the w
 Design rationale lives in [`TAD.md`](./TAD.md).
 
 <p align="center">
-  <video src="https://hy13dev.com/confluence-bot-spotlight.mp4" width="100%" autoplay loop muted playsinline></video>
+  <img src="assets/confluence-bot-spotlight-short.gif" alt="confluence-bot-spotlight" width="100%" />
 </p>
 
 ## Download
